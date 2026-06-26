@@ -1,13 +1,11 @@
-// swipe.js (修正版)
+// swipe.js (連続スティック入力対応版)
 class SwipeController {
   constructor(targetCanvas) {
     this.target = targetCanvas;
     
-    // エフェクト用のキャンバスを作成
     this.canvas = document.createElement('canvas');
     this.ctx = this.canvas.getContext('2d');
     
-    // 元のキャンバスの直後に挿入
     this.target.parentNode.insertBefore(this.canvas, this.target.nextSibling);
     
     this.isSwiping = false;
@@ -24,7 +22,6 @@ class SwipeController {
   }
 
   setupCanvas() {
-    // 【重要】元のcanvasに「絶対座標」で完全にピタッと重ねる（レイアウトを崩さない）
     this.canvas.width = this.target.width;
     this.canvas.height = this.target.height;
     this.canvas.style.position = 'absolute';
@@ -33,7 +30,6 @@ class SwipeController {
     this.canvas.style.width = this.target.style.width || (this.target.clientWidth + 'px');
     this.canvas.style.height = this.target.style.height || (this.target.clientHeight + 'px');
     
-    // ゲーム画面を隠さないための必須設定
     this.canvas.style.pointerEvents = 'none'; 
     this.canvas.style.background = 'transparent'; 
     this.canvas.style.zIndex = '100';
@@ -75,39 +71,45 @@ class SwipeController {
       this.currentX = pos.x;
       this.currentY = pos.y;
       
-      const dx = this.currentX - this.lastX;
-      const dy = this.currentY - this.lastY;
+      // パーティクル（残像）の生成
+      const dxParticle = this.currentX - this.lastX;
+      const dyParticle = this.currentY - this.lastY;
       
-      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
-        // 逆方向に飛び散る残像
+      if (Math.abs(dxParticle) > 1 || Math.abs(dyParticle) > 1) {
         this.particles.push({
           x: this.currentX,
           y: this.currentY,
-          vx: -dx * 0.2 + (Math.random() - 0.5) * 4,
-          vy: -dy * 0.2 + (Math.random() - 0.5) * 4,
+          vx: -dxParticle * 0.2 + (Math.random() - 0.5) * 4,
+          vy: -dyParticle * 0.2 + (Math.random() - 0.5) * 4,
           life: 1.0,
           size: Math.random() * 6 + 3
         });
       }
+
+      // 連続入力の判定：基準点（startX, Y）からの距離を測る
+      const dxInput = this.currentX - this.startX;
+      const dyInput = this.currentY - this.startY;
+      const dist = Math.sqrt(dxInput * dxInput + dyInput * dyInput);
+      
+      // 30px以上引っ張ったら方向決定し、そこを新たな基準点にする！
+      if (dist > 30) {
+        this.triggerDirection(dxInput, dyInput);
+        this.spawnRipple(this.currentX, this.currentY, "rgba(142, 240, 184, 0.6)");
+        
+        // ★ここがポイント：入力が済んだら起点を今の指の位置にリセット
+        this.startX = this.currentX;
+        this.startY = this.currentY;
+      }
+
       this.lastX = this.currentX;
       this.lastY = this.currentY;
     };
 
     const end = (e) => {
-      if (!this.isSwiping) return;
+      // 指を離した時は判定を終了するだけ（move側で入力済みのため）
       this.isSwiping = false;
-      
-      const dx = this.currentX - this.startX;
-      const dy = this.currentY - this.startY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      
-      if (dist > 30) {
-        this.triggerDirection(dx, dy);
-        this.spawnRipple(this.currentX, this.currentY, "rgba(142, 240, 184, 0.6)");
-      }
     };
 
-    // 元のゲーム画面（target）を触ったときにイベントを開始する
     this.target.addEventListener('touchstart', start, { passive: false });
     this.target.addEventListener('touchmove', move, { passive: false });
     this.target.addEventListener('touchend', end);
@@ -148,7 +150,6 @@ class SwipeController {
     requestAnimationFrame(() => this.animate());
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     
-    // エフェクト描画
     for (let i = this.particles.length - 1; i >= 0; i--) {
       let p = this.particles[i];
       p.life -= 0.04;
@@ -173,8 +174,8 @@ class SwipeController {
       }
     }
     
-    // 引っ張るラインの描画
     if (this.isSwiping) {
+      // 基準点のリング（移動するたびに指の位置に追従してくる）
       this.ctx.beginPath();
       this.ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
       this.ctx.lineWidth = 3;
