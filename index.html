@@ -20,7 +20,7 @@
 <body>
   <div id="top">
     <h1>六角形スネーク</h1>
-    <div id="info" class="hint">Enterで開始 / Escで一時停止。W Q A S D E で曲がりながら進む。はちみつは1つずつ完全ランダムに出現します。</div>
+    <div id="info" class="hint">画面タップ または Enterで開始。スワイプ（または W Q A S D E）で曲がる。</div>
     <canvas id="canvas"></canvas>
     <div id="hud">
       <div id="status">状態: 停止中</div>
@@ -64,6 +64,7 @@
     let score = 0;
 
     const NEIGHBORS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+    let DIR_MAPPING = {}; // 初期化時に計算されるように変更
 
     // -------------------------
     // Geometry / helpers
@@ -201,30 +202,16 @@
     // Snake
     // -------------------------
     function place_initial_snake() {
-      const center_line = [[0,0],[0,1],[0,2]];
-      if (!center_line.some(c => eq(c, honey))) {
-        snake = [...center_line];
-        current_dir = [0, -1];
-        return;
-      }
-      for (let q = -BOARD_RADIUS; q <= BOARD_RADIUS; q++) {
-        for (let r = -BOARD_RADIUS; r <= BOARD_RADIUS; r++) {
-          for (let d of NEIGHBORS) {
-            const head = [q, r];
-            const mid = [q + d[0], r + d[1]];
-            const tail = [q + 2*d[0], r + 2*d[1]];
-            if (in_board(head) && in_board(mid) && in_board(tail)) {
-              if (!eq(head, honey) && !eq(mid, honey) && !eq(tail, honey)) {
-                snake = [head, mid, tail];
-                current_dir = [-d[0], -d[1]];
-                return;
-              }
-            }
-          }
-        }
-      }
-      snake = [...center_line];
-      current_dir = [0, -1];
+      // 常に盤面の中心 (0, 0) から、上方向 ("w") に向かって配置する
+      const up_dir = DIR_MAPPING["w"];
+      current_dir = up_dir;
+      
+      const head = [0, 0]; // ど真ん中
+      // 頭から見て「後ろ」に胴体を配置する
+      const mid = [0 - up_dir[0], 0 - up_dir[1]];
+      const tail = [0 - 2 * up_dir[0], 0 - 2 * up_dir[1]];
+      
+      snake = [head, mid, tail];
     }
 
     function draw_snake() {
@@ -305,7 +292,7 @@
         ctx.fillStyle = "rgba(0,0,0,0.6)";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = "#fff";
-        ctx.font = overlay_big ? "bold 56px sans-serif" : "bold 36px sans-serif";
+        ctx.font = overlay_big ? "bold 48px sans-serif" : "bold 32px sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         const lines = show_overlay.split("\n");
@@ -333,14 +320,14 @@
         game_over = true;
         stop_game(true);
         set_status("ゲームオーバー（壁）");
-        render(`ゲームオーバー\n最終スコア: ${score}\nEnterで始めから`, true);
+        render(`ゲームオーバー\n最終スコア: ${score}\n画面タップで始めから`, true);
         return;
       }
       if (inSnake(new_head)) {
         game_over = true;
         stop_game(true);
         set_status("ゲームオーバー（自己衝突）");
-        render(`ゲームオーバー\n最終スコア: ${score}\nEnterで始めから`, true);
+        render(`ゲームオーバー\n最終スコア: ${score}\n画面タップで始めから`, true);
         return;
       }
       
@@ -366,7 +353,7 @@
     function start_game() {
       if (game_over) {
         restart_game();
-        return;
+        return; // リスタート時は一度ポーズ状態にする（すぐに動き出さないように）
       }
       if (running) return;
       running = true;
@@ -386,7 +373,7 @@
       }
       if (!isGameOver) {
         set_status("一時停止");
-        render("一時停止\nEnterで再開");
+        render("一時停止\n画面タップで再開");
       }
     }
 
@@ -396,12 +383,25 @@
       game_over = false;
       running = false;
       set_status("停止中");
-      spawn_one_random_honey_not_on_snake();
+      
+      // ヘビを先に置いてからハチミツを出す（被り防止）
       place_initial_snake();
-      render("スタート！\nEnterで開始");
+      spawn_one_random_honey_not_on_snake();
+      
+      render("スタート！\n画面タップで開始");
       if (interval_id !== null) {
         clearInterval(interval_id);
         interval_id = null;
+      }
+    }
+
+    // タップ操作でゲームを開始・再開するハンドラー
+    function handle_tap_start(e) {
+      if (game_over) {
+        restart_game();
+        start_game();
+      } else if (!running) {
+        start_game();
       }
     }
 
@@ -456,8 +456,6 @@
       return DIR;
     }
 
-    const DIR_MAPPING = compute_dir_mapping();
-
     function global_key_handler(evt) {
       const key = evt.key;
       if (key === "Enter") {
@@ -498,15 +496,21 @@
     }
 
     function init() {
+      DIR_MAPPING = compute_dir_mapping(); // 先にマッピングを計算
       resize_canvas();
-      spawn_one_random_honey_not_on_snake();
-      place_initial_snake();
-      render("スタート！\nEnterで開始");
+      place_initial_snake(); // ヘビをド真ん中に置く
+      spawn_one_random_honey_not_on_snake(); // その後にハチミツ
+      render("スタート！\n画面タップで開始");
       set_status("停止中");
     }
 
     window.addEventListener("resize", resize_canvas);
     document.addEventListener("keydown", global_key_handler);
+    
+    // タップイベントの登録
+    canvas.addEventListener("mousedown", handle_tap_start);
+    canvas.addEventListener("touchstart", handle_tap_start, { passive: true });
+    
     canvas.tabIndex = 0;
     canvas.addEventListener("click", () => canvas.focus());
 
