@@ -9,7 +9,7 @@
     body { background:#111; color:#fff; font-family: sans-serif; text-align:center; margin:0; padding:0px; box-sizing:border-box; }
     #top { max-width:1200px; margin:0 auto; }
     #info { margin:8px 0; color:#ccc; }
-    canvas { background:#222; margin:10px auto; display:block; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.6); outline:none; }
+    canvas { background:#222; margin:10px auto; display:block; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.6); outline:none; touch-action:none; }
     .hint { color:#bbb; font-size:14px; margin-bottom:6px; }
     #hud { display:flex; justify-content:center; gap:18px; align-items:center; color:#ddd; margin-top:8px; }
     #status { color:#ddd; }
@@ -513,5 +513,6 @@
     init();
 
   </script>
+  <script src="swipe.js"></script>
 </body>
 </html>
