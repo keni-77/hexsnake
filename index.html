@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Hex Snake</title>
+
+  <style>
+    body { background:#111; color:#fff; font-family: sans-serif; text-align:center; margin:0; padding:0px; box-sizing:border-box; }
+    #top { max-width:1200px; margin:0 auto; }
+    #info { margin:8px 0; color:#ccc; }
+    canvas { background:#222; margin:10px auto; display:block; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.6); outline:none; }
+    .hint { color:#bbb; font-size:14px; margin-bottom:6px; }
+    #hud { display:flex; justify-content:center; gap:18px; align-items:center; color:#ddd; margin-top:8px; }
+    #status { color:#ddd; }
+    #score { color:#ffd86b; font-weight:700; }
+    button { display:none; } /* UI via keys */
+  </style>
+</head>
+<body>
+  <div id="top">
+    <h1>六角形スネーク</h1>
+    <div id="info" class="hint">Enterで開始 / Escで一時停止。W Q A S D E で曲がりながら進む。はちみつは1つずつ完全ランダムに出現します。</div>
+    <canvas id="canvas"></canvas>
+    <div id="hud">
+      <div id="status">状態: 停止中</div>
+      <div>スコア: <span id="score">0</span></div>
+    </div>
+  </div>
+
+  <script>
+    // -------------------------
+    // Config
+    // -------------------------
+    const BOARD_RADIUS = 6;
+    const ROT_DEG = 30;
+    const STEP_MS_DEFAULT = 320;
+    const MIN_HEX_SIZE = 6;
+    const CANVAS_MARGIN = 120;
+
+    // -------------------------
+    // Globals
+    // -------------------------
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const status_div = document.getElementById("status");
+    const score_span = document.getElementById("score");
+
+    let HEX_SIZE = 24;
+    let CENTER_X = 0;
+    let CENTER_Y = 0;
+
+    const ROT_RAD = -ROT_DEG * Math.PI / 180;
+    const COS_A = Math.cos(ROT_RAD);
+    const SIN_A = Math.sin(ROT_RAD);
+
+    let snake = [];
+    let current_dir = [0, -1];
+    let honey = null; // [q, r]
+    let running = false;
+    let game_over = false;
+    let interval_id = null;
+    let STEP_MS = STEP_MS_DEFAULT;
+    let score = 0;
+
+    const NEIGHBORS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+
+    // -------------------------
+    // Geometry / helpers
+    // -------------------------
+    function eq(a, b) {
+      if (!a || !b) return false;
+      return a[0] === b[0] && a[1] === b[1];
+    }
+
+    function inSnake(cell) {
+      return snake.some(s => eq(s, cell));
+    }
+
+    function rotate_point(x, y) {
+      const tx = x - CENTER_X;
+      const ty = y - CENTER_Y;
+      const rx = tx * COS_A - ty * SIN_A;
+      const ry = tx * SIN_A + ty * COS_A;
+      return [rx + CENTER_X, ry + CENTER_Y];
+    }
+
+    function axial_to_pixel_raw(q, r) {
+      const x = HEX_SIZE * (Math.sqrt(3) * q + (Math.sqrt(3)/2) * r);
+      const y = HEX_SIZE * (3/2 * r);
+      return [x + CENTER_X, y + CENTER_Y];
+    }
+
+    function axial_to_pixel(q, r) {
+      const [x, y] = axial_to_pixel_raw(q, r);
+      return rotate_point(x, y);
+    }
+
+    function in_board(cell) {
+      const [q, r] = cell;
+      return Math.abs(q) <= BOARD_RADIUS && Math.abs(r) <= BOARD_RADIUS && Math.abs(q + r) <= BOARD_RADIUS;
+    }
+
+    // -------------------------
+    // Responsive canvas sizing
+    // -------------------------
+    function resize_canvas() {
+      let w = Math.min(window.innerWidth - CANVAS_MARGIN, 900);
+      if (w < 200) w = window.innerWidth - 40;
+      canvas.width = w;
+      canvas.height = w;
+      CENTER_X = canvas.width / 2;
+      CENTER_Y = canvas.height / 2;
+      const max_cols = (2 * BOARD_RADIUS + 1);
+      HEX_SIZE = Math.min(
+        (canvas.width - CANVAS_MARGIN*2) / (max_cols * Math.sqrt(3)),
+        (canvas.height - CANVAS_MARGIN*2) / (max_cols * 1.5)
+      );
+      if (HEX_SIZE < MIN_HEX_SIZE) HEX_SIZE = MIN_HEX_SIZE;
+      if (!running && !game_over) render(null);
+      else render();
+    }
+
+    // -------------------------
+    // Drawing
+    // -------------------------
+    function draw_hex_vertices_raw(q, r) {
+      const [cx_raw, cy_raw] = axial_to_pixel_raw(q, r);
+      let verts = [];
+      for (let i = 0; i < 6; i++) {
+        const angle = (60 * i - 30) * Math.PI / 180;
+        const px = cx_raw + HEX_SIZE * Math.cos(angle);
+        const py = cy_raw + HEX_SIZE * Math.sin(angle);
+        verts.push(rotate_point(px, py));
+      }
+      return verts;
+    }
+
+    function draw_hex_at(q, r, fill_color, stroke_color="#222", stroke=true, overlap=false) {
+      const verts = draw_hex_vertices_raw(q, r);
+      if (overlap) {
+        const [cx, cy] = axial_to_pixel(q, r);
+        ctx.beginPath();
+        verts.forEach((v, i) => {
+          const sx = cx + (v[0] - cx) * 1.06;
+          const sy = cy + (v[1] - cy) * 1.06;
+          if (i === 0) ctx.moveTo(sx, sy);
+          else ctx.lineTo(sx, sy);
+        });
+        ctx.closePath();
+        ctx.fillStyle = fill_color;
+        ctx.fill();
+      }
+      ctx.beginPath();
+      verts.forEach((v, i) => {
+        if (i === 0) ctx.moveTo(v[0], v[1]);
+        else ctx.lineTo(v[0], v[1]);
+      });
+      ctx.closePath();
+      ctx.fillStyle = fill_color;
+      ctx.fill();
+      if (stroke) {
+        ctx.strokeStyle = stroke_color;
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
+    }
+
+    function draw_board() {
+      for (let q = -BOARD_RADIUS; q <= BOARD_RADIUS; q++) {
+        for (let r = -BOARD_RADIUS; r <= BOARD_RADIUS; r++) {
+          if (Math.abs(q + r) <= BOARD_RADIUS) {
+            draw_hex_at(q, r, "#2f2f2f", "#1f1f1f");
+          }
+        }
+      }
+    }
+
+    // -------------------------
+    // Honey
+    // -------------------------
+    function spawn_one_random_honey_not_on_snake() {
+      let free = [];
+      for (let q = -BOARD_RADIUS; q <= BOARD_RADIUS; q++) {
+        for (let r = -BOARD_RADIUS; r <= BOARD_RADIUS; r++) {
+          const cell = [q, r];
+          if (in_board(cell) && !inSnake(cell)) {
+            free.push(cell);
+          }
+        }
+      }
+      if (free.length === 0) {
+        honey = null;
+        return null;
+      }
+      honey = free[Math.floor(Math.random() * free.length)];
+      return honey;
+    }
+
+    // -------------------------
+    // Snake
+    // -------------------------
+    function place_initial_snake() {
+      const center_line = [[0,0],[0,1],[0,2]];
+      if (!center_line.some(c => eq(c, honey))) {
+        snake = [...center_line];
+        current_dir = [0, -1];
+        return;
+      }
+      for (let q = -BOARD_RADIUS; q <= BOARD_RADIUS; q++) {
+        for (let r = -BOARD_RADIUS; r <= BOARD_RADIUS; r++) {
+          for (let d of NEIGHBORS) {
+            const head = [q, r];
+            const mid = [q + d[0], r + d[1]];
+            const tail = [q + 2*d[0], r + 2*d[1]];
+            if (in_board(head) && in_board(mid) && in_board(tail)) {
+              if (!eq(head, honey) && !eq(mid, honey) && !eq(tail, honey)) {
+                snake = [head, mid, tail];
+                current_dir = [-d[0], -d[1]];
+                return;
+              }
+            }
+          }
+        }
+      }
+      snake = [...center_line];
+      current_dir = [0, -1];
+    }
+
+    function draw_snake() {
+      snake.forEach((cell, i) => {
+        const [q, r] = cell;
+        if (i === 0) {
+          draw_hex_at(q, r, "#8ef0b8", "#2f8f5a", true, true);
+          draw_head_eyes(cell);
+        } else {
+          draw_hex_at(q, r, "#3aa36a", "#1f6b45", false, true);
+        }
+      });
+    }
+
+    function draw_head_eyes(head) {
+      const [dq, dr] = current_dir;
+      const [x0, y0] = axial_to_pixel_raw(0, 0);
+      const [x1, y1] = axial_to_pixel_raw(dq, dr);
+      const [rx0, ry0] = rotate_point(x0, y0);
+      const [rx1, ry1] = rotate_point(x1, y1);
+      const dx = rx1 - rx0;
+      const dy = ry1 - ry0;
+      const ang = Math.atan2(dy, dx);
+
+      const [hx, hy] = axial_to_pixel(head[0], head[1]);
+      const forward = [Math.cos(ang), Math.sin(ang)];
+      const perp = [-forward[1], forward[0]];
+
+      const eye_dist_forward = HEX_SIZE * 0.35;
+      const eye_dist_side = HEX_SIZE * 0.22;
+      const eye_radius = Math.max(2, Math.floor(HEX_SIZE * 0.14));
+
+      const lx = hx + forward[0]*eye_dist_forward + perp[0]*eye_dist_side;
+      const ly = hy + forward[1]*eye_dist_forward + perp[1]*eye_dist_side;
+      const rx = hx + forward[0]*eye_dist_forward - perp[0]*eye_dist_side;
+      const ry = hy + forward[1]*eye_dist_forward - perp[1]*eye_dist_side;
+
+      // 白目
+      ctx.beginPath();
+      ctx.fillStyle = "#ffffff";
+      ctx.arc(lx, ly, eye_radius, 0, 2*Math.PI);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(rx, ry, eye_radius, 0, 2*Math.PI);
+      ctx.fill();
+
+      // 瞳
+      const pupil_r = Math.max(1, Math.floor(eye_radius * 0.45));
+      const pupil_offset = eye_radius * 0.25;
+      ctx.beginPath();
+      ctx.fillStyle = "#000000";
+      ctx.arc(lx + forward[0]*pupil_offset, ly + forward[1]*pupil_offset, pupil_r, 0, 2*Math.PI);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(rx + forward[0]*pupil_offset, ry + forward[1]*pupil_offset, pupil_r, 0, 2*Math.PI);
+      ctx.fill();
+    }
+
+    // -------------------------
+    // Render / overlay
+    // -------------------------
+    function render(show_overlay=null, overlay_big=false) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      draw_board();
+      if (honey !== null) {
+        const [q, r] = honey;
+        const [cx, cy] = axial_to_pixel(q, r);
+        draw_hex_at(q, r, "#ffd86b", "#b36b00", true, false);
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(255,255,255,0.25)";
+        ctx.arc(cx - HEX_SIZE*0.2, cy - HEX_SIZE*0.2, HEX_SIZE*0.18, 0, 2*Math.PI);
+        ctx.fill();
+      }
+      draw_snake();
+      
+      if (show_overlay) {
+        ctx.save();
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff";
+        ctx.font = overlay_big ? "bold 56px sans-serif" : "bold 36px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const lines = show_overlay.split("\n");
+        lines.forEach((line, i) => {
+          ctx.fillText(line, CENTER_X, CENTER_Y + (i - (lines.length-1)/2) * (overlay_big ? 64 : 44));
+        });
+        ctx.restore();
+      }
+    }
+
+    // -------------------------
+    // Game logic
+    // -------------------------
+    function opposite(d1, d2) {
+      return d1[0] === -d2[0] && d1[1] === -d2[1];
+    }
+
+    function step() {
+      if (!running) return;
+      const [hq, hr] = snake[0];
+      const [dq, dr] = current_dir;
+      const new_head = [hq + dq, hr + dr];
+      
+      if (!in_board(new_head)) {
+        game_over = true;
+        stop_game(true);
+        set_status("ゲームオーバー（壁）");
+        render(`ゲームオーバー\n最終スコア: ${score}\nEnterで始めから`, true);
+        return;
+      }
+      if (inSnake(new_head)) {
+        game_over = true;
+        stop_game(true);
+        set_status("ゲームオーバー（自己衝突）");
+        render(`ゲームオーバー\n最終スコア: ${score}\nEnterで始めから`, true);
+        return;
+      }
+      
+      snake.unshift(new_head);
+      
+      if (honey !== null && eq(new_head, honey)) {
+        score_increment();
+        spawn_one_random_honey_not_on_snake();
+      } else {
+        snake.pop();
+      }
+      render();
+    }
+
+    function score_increment() {
+      score += 1;
+      score_span.innerText = score.toString();
+    }
+
+    // -------------------------
+    // Controls / events
+    // -------------------------
+    function start_game() {
+      if (game_over) {
+        restart_game();
+        return;
+      }
+      if (running) return;
+      running = true;
+      if (interval_id === null) {
+        interval_id = setInterval(step, STEP_MS);
+      }
+      set_status("実行中");
+      render();
+    }
+
+    function stop_game(isGameOver=false) {
+      if (!running && !isGameOver) return;
+      running = false;
+      if (interval_id !== null) {
+        clearInterval(interval_id);
+        interval_id = null;
+      }
+      if (!isGameOver) {
+        set_status("一時停止");
+        render("一時停止\nEnterで再開");
+      }
+    }
+
+    function restart_game() {
+      score = 0;
+      score_span.innerText = score.toString();
+      game_over = false;
+      running = false;
+      set_status("停止中");
+      spawn_one_random_honey_not_on_snake();
+      place_initial_snake();
+      render("スタート！\nEnterで開始");
+      if (interval_id !== null) {
+        clearInterval(interval_id);
+        interval_id = null;
+      }
+    }
+
+    function compute_dir_mapping() {
+      const AXIAL_DELTAS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+      const desired_angles = {w: -90, e: -30, d: 30, s: 90, a: 150, q: -150};
+      
+      function angle_of_delta(delta) {
+        const [x0, y0] = axial_to_pixel_raw(0, 0);
+        const [x1, y1] = axial_to_pixel_raw(delta[0], delta[1]);
+        const [rx0, ry0] = rotate_point(x0, y0);
+        const [rx1, ry1] = rotate_point(x1, y1);
+        const dx = rx1 - rx0;
+        const dy = ry1 - ry0;
+        return Math.atan2(dy, dx) * 180 / Math.PI;
+      }
+      
+      const delta_angles = AXIAL_DELTAS.map(d => angle_of_delta(d));
+      let DIR = {};
+      let used = new Set();
+      
+      for (let key in desired_angles) {
+        let want_ang = desired_angles[key];
+        let best = null;
+        let best_diff = 9999;
+        for (let i = 0; i < delta_angles.length; i++) {
+          if (used.has(i)) continue;
+          let diff = (delta_angles[i] - want_ang + 180) % 360 - 180;
+          if (Math.abs(diff) < best_diff) {
+            best_diff = Math.abs(diff);
+            best = i;
+          }
+        }
+        if (best !== null) {
+          used.add(best);
+          DIR[key] = AXIAL_DELTAS[best];
+        }
+      }
+      
+      const remaining_keys = ["w","q","a","s","d","e"];
+      for (let k of remaining_keys) {
+        if (!(k in DIR)) {
+          for (let i = 0; i < AXIAL_DELTAS.length; i++) {
+            if (!used.has(i)) {
+              used.add(i);
+              DIR[k] = AXIAL_DELTAS[i];
+              break;
+            }
+          }
+        }
+      }
+      return DIR;
+    }
+
+    const DIR_MAPPING = compute_dir_mapping();
+
+    function global_key_handler(evt) {
+      const key = evt.key;
+      if (key === "Enter") {
+        if (game_over) {
+          restart_game();
+          start_game();
+        } else if (!running) {
+          start_game();
+        }
+        return;
+      } else if (key === "Escape") {
+        if (running) {
+          stop_game();
+        } else if (!game_over) {
+          start_game();
+        }
+        return;
+      }
+      
+      if (!running) return;
+      
+      const k = key.toLowerCase();
+      if (!(k in DIR_MAPPING)) return;
+      
+      const new_dir = DIR_MAPPING[k];
+      if (opposite(new_dir, current_dir)) return;
+      if (eq(new_dir, current_dir)) return;
+      
+      current_dir = new_dir;
+      step(); // Move immediately on key press
+    }
+
+    // -------------------------
+    // Initialization
+    // -------------------------
+    function set_status(text) {
+      status_div.innerText = "状態: " + text;
+    }
+
+    function init() {
+      resize_canvas();
+      spawn_one_random_honey_not_on_snake();
+      place_initial_snake();
+      render("スタート！\nEnterで開始");
+      set_status("停止中");
+    }
+
+    window.addEventListener("resize", resize_canvas);
+    document.addEventListener("keydown", global_key_handler);
+    canvas.tabIndex = 0;
+    canvas.addEventListener("click", () => canvas.focus());
+
+    init();
+
+  </script>
+</body>
+</html>
