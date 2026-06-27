@@ -25,11 +25,10 @@ class SwipeController {
     this.canvas.width = this.target.width;
     this.canvas.height = this.target.height;
     this.canvas.style.position = 'absolute';
-    this.canvas.style.left = this.target.offsetLeft + 'px';
-    this.canvas.style.top = this.target.offsetTop + 'px';
-    this.canvas.style.width = this.target.style.width || (this.target.clientWidth + 'px');
-    this.canvas.style.height = this.target.style.height || (this.target.clientHeight + 'px');
-    
+    this.canvas.style.left = '0px';
+    this.canvas.style.top = '0px';
+    this.canvas.style.width = '100%';
+    this.canvas.style.height = '100%';
     this.canvas.style.pointerEvents = 'none'; 
     this.canvas.style.background = 'transparent'; 
     this.canvas.style.zIndex = '100';
