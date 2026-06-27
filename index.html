@@ -10,6 +10,31 @@
     #top { max-width:1200px; margin:0 auto; }
     #info { margin:8px 0; color:#ccc; }
     canvas { background:#222; margin:10px auto; display:block; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.6); outline:none; touch-action:none; }
+    .canvas-wrapper {
+      position: relative;
+      display: inline-block;
+      margin: 10px auto;
+    }
+    canvas { 
+      background:#222; 
+      display: block; 
+      border-radius:8px; 
+      box-shadow:0 4px 12px rgba(0,0,0,0.6); 
+      outline:none; 
+      touch-action:none; 
+    }
+    .usage-guide {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 20%;
+      height: auto;
+      opacity: 1.0;
+      z-index: 150;
+      pointer-events: none;
+      border-radius: 4px;
+      transition: opacity 0.2s;
+    }
     .hint { color:#bbb; font-size:14px; margin-bottom:6px; }
     #hud { display:flex; justify-content:center; gap:18px; align-items:center; color:#ddd; margin-top:8px; }
     #status { color:#ddd; }
@@ -21,7 +46,10 @@
   <div id="top">
     <h1>六角形スネーク</h1>
     <div id="info" class="hint">画面タップ または Enterで開始。スワイプ（または W Q A S D E）で曲がる。</div>
-    <canvas id="canvas"></canvas>
+    <div class="canvas-wrapper">
+      <canvas id="canvas"></canvas>
+      <img src="usage.png" alt="操作方法" class="usage-guide" />
+    </div>
     <div id="hud">
       <div id="status">状態: 停止中</div>
       <div>スコア: <span id="score">0</span></div>
@@ -214,16 +242,79 @@
       snake = [head, mid, tail];
     }
 
+    // -------------------------
+    // Snake (カッコいいサイバーデザイン版)
+    // -------------------------
     function draw_snake() {
-      snake.forEach((cell, i) => {
-        const [q, r] = cell;
+      const len = snake.length;
+      
+      // 影（ネオン発光）の設定を有効化
+      ctx.save();
+      ctx.shadowBlur = HEX_SIZE * 0.4;
+      
+      // 後ろの胴体から順番に描画（頭を一番上に重ねるため）
+      for (let i = len - 1; i >= 0; i--) {
+        const [q, r] = snake[i];
+        
         if (i === 0) {
-          draw_hex_at(q, r, "#8ef0b8", "#2f8f5a", true, true);
-          draw_head_eyes(cell);
+          // --- 頭部のデザイン ---
+          ctx.shadowColor = "#00ff87"; // 鮮やかなネオン輝き
+          // メタリックなグラデーション
+          const [cx, cy] = axial_to_pixel(q, r);
+          let grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, HEX_SIZE);
+          grad.addColorStop(0, "#8ef0b8");
+          grad.addColorStop(1, "#118c4f");
+          
+          draw_hex_at(q, r, grad, "#00ff87", true, true);
+          draw_head_eyes(snake[i]);
+          
         } else {
-          draw_hex_at(q, r, "#3aa36a", "#1f6b45", false, true);
+          // --- 胴体のデザイン ---
+          // 後ろにいくほど細く（グラデーション縮小）
+          const ratio = (len - i) / len; // 1(頭付近) ～ 0(尻尾)
+          const sizeMultiplier = 0.75 + ratio * 0.25; // 尻尾は少し細くする
+          
+          ctx.shadowColor = "rgba(0, 255, 135, " + (ratio * 0.4) + ")"; // 尻尾ほど光を弱く
+          
+          // 胴体の色のグラデーション（頭から尻尾への色の変化）
+          let bodyGrad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height); // 仮の方向
+          // 徐々に深いサイバーブルーグリーンへ変化
+          const rColor = Math.floor(58 + (16 - 58) * (1 - ratio));
+          const gColor = Math.floor(163 + (75 - 163) * (1 - ratio));
+          const bColor = Math.floor(106 + (69 - 106) * (1 - ratio));
+          
+          // 元の関数を流用しつつ、サイズをリアルタイムに変えるためにカスタム描画
+          const verts = draw_hex_vertices_raw(q, r);
+          const [cx, cy] = axial_to_pixel(q, r);
+          
+          // 立体感を出すためのオーバーラップ描画
+          ctx.beginPath();
+          verts.forEach((v, idx) => {
+            // 中心からの距離を ratio に応じて縮小して「細らせる」
+            const sx = cx + (v[0] - cx) * 1.05 * sizeMultiplier;
+            const sy = cy + (v[1] - cy) * 1.05 * sizeMultiplier;
+            if (idx === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+          });
+          ctx.closePath();
+          ctx.fillStyle = `rgb(${rColor}, ${gColor}, ${bColor})`;
+          ctx.fill();
+          
+          // 発光するインナー回路ライン
+          ctx.beginPath();
+          verts.forEach((v, idx) => {
+            const sx = cx + (v[0] - cx) * 0.85 * sizeMultiplier;
+            const sy = cy + (v[1] - cy) * 0.85 * sizeMultiplier;
+            if (idx === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+          });
+          ctx.closePath();
+          ctx.strokeStyle = `rgba(0, 255, 135, ${ratio * 0.3})`;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
         }
-      });
+      }
+      ctx.restore(); // 影の設定をリセット
     }
 
     function draw_head_eyes(head) {
@@ -240,34 +331,46 @@
       const forward = [Math.cos(ang), Math.sin(ang)];
       const perp = [-forward[1], forward[0]];
 
-      const eye_dist_forward = HEX_SIZE * 0.35;
-      const eye_dist_side = HEX_SIZE * 0.22;
-      const eye_radius = Math.max(2, Math.floor(HEX_SIZE * 0.14));
+      const eye_dist_forward = HEX_SIZE * 0.4;
+      const eye_dist_side = HEX_SIZE * 0.25;
+      const eye_radius = Math.max(2, Math.floor(HEX_SIZE * 0.16));
 
       const lx = hx + forward[0]*eye_dist_forward + perp[0]*eye_dist_side;
       const ly = hy + forward[1]*eye_dist_forward + perp[1]*eye_dist_side;
       const rx = hx + forward[0]*eye_dist_forward - perp[0]*eye_dist_side;
       const ry = hy + forward[1]*eye_dist_forward - perp[1]*eye_dist_side;
 
-      // 白目
+      // サイバーゴーグル風の光る目
+      ctx.save();
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = "#00ffff"; // 目はサイバーブルーに発光
+      
+      // 左目
       ctx.beginPath();
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = "#00ffff";
       ctx.arc(lx, ly, eye_radius, 0, 2*Math.PI);
       ctx.fill();
+      
+      // 右目
       ctx.beginPath();
+      ctx.fillStyle = "#00ffff";
       ctx.arc(rx, ry, eye_radius, 0, 2*Math.PI);
       ctx.fill();
 
-      // 瞳
-      const pupil_r = Math.max(1, Math.floor(eye_radius * 0.45));
-      const pupil_offset = eye_radius * 0.25;
+      // スリット（鋭い瞳のライン）
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.fillStyle = "#000000";
-      ctx.arc(lx + forward[0]*pupil_offset, ly + forward[1]*pupil_offset, pupil_r, 0, 2*Math.PI);
-      ctx.fill();
+      ctx.moveTo(lx - perp[0]*eye_radius*0.5, ly - perp[1]*eye_radius*0.5);
+      ctx.lineTo(lx + perp[0]*eye_radius*0.5, ly + perp[1]*eye_radius*0.5);
+      ctx.stroke();
+      
       ctx.beginPath();
-      ctx.arc(rx + forward[0]*pupil_offset, ry + forward[1]*pupil_offset, pupil_r, 0, 2*Math.PI);
-      ctx.fill();
+      ctx.moveTo(rx - perp[0]*eye_radius*0.5, ry - perp[1]*eye_radius*0.5);
+      ctx.lineTo(rx + perp[0]*eye_radius*0.5, ry + perp[1]*eye_radius*0.5);
+      ctx.stroke();
+      
+      ctx.restore();
     }
 
     // -------------------------
