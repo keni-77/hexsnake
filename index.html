@@ -106,21 +106,20 @@
   .canvas-wrapper:hover .usage-guide {
     transform: scale(1.25);
   }
-</style>
+  </style>
 </head>
 <body>
-  <div id="top">
-    <h1>Hexagon Snake Game</h1>
-    <div class="subtitle">Cybernetic Honey Hunt</div>
-    <div id="info" class="hint">画面タップ または Enterで開始。スワイプ（または W Q A S D E）で曲がる。</div>
-    <div class="canvas-wrapper">
-      <canvas id="canvas"></canvas>
-      <img src="usage.png" alt="操作方法" class="usage-guide" />
-    </div>
-    <div id="hud">
-      <div id="status">状態: 停止中</div>
-      <div>スコア: <span id="score">0</span></div>
-    </div>
+  
+  <h1>Hexagon Snake Game</h1>
+  <div class="subtitle">Cybernetic Honey Hunt</div>
+
+  <div id="score-container">
+    SCORE:<span id="score">0</span>
+  </div>
+
+  <div class="canvas-wrapper">
+    <canvas id="canvas"></canvas>
+    <img src="usage.png" alt="操作方法" class="usage-guide" />
   </div>
 
   <script>
@@ -138,7 +137,6 @@
     // -------------------------
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
-    const status_div = document.getElementById("status");
     const score_span = document.getElementById("score");
 
     let HEX_SIZE = 24;
@@ -273,8 +271,20 @@
     }
 
     // -------------------------
-    // Honey
+    // Honey & Effects
     // -------------------------
+    let honey_hex_effect = null;
+
+    function trigger_honey_spawn_effect(cx, cy) {
+      // 粒子や波紋は使わず、シンプルな六角形エフェクトのみをセット
+      honey_hex_effect = {
+        cx: cx,
+        cy: cy,
+        scale: 1.0,
+        alpha: 1.0
+      };
+    }
+
     function spawn_one_random_honey_not_on_snake() {
       let free = [];
       for (let q = -BOARD_RADIUS; q <= BOARD_RADIUS; q++) {
@@ -290,6 +300,10 @@
         return null;
       }
       honey = free[Math.floor(Math.random() * free.length)];
+      
+      const [cx, cy] = axial_to_pixel(honey[0], honey[1]);
+      trigger_honey_spawn_effect(cx, cy);
+
       return honey;
     }
 
@@ -297,36 +311,27 @@
     // Snake
     // -------------------------
     function place_initial_snake() {
-      // 常に盤面の中心 (0, 0) から、上方向 ("w") に向かって配置する
       const up_dir = DIR_MAPPING["w"];
       current_dir = up_dir;
       
-      const head = [0, 0]; // ど真ん中
-      // 頭から見て「後ろ」に胴体を配置する
+      const head = [0, 0]; 
       const mid = [0 - up_dir[0], 0 - up_dir[1]];
       const tail = [0 - 2 * up_dir[0], 0 - 2 * up_dir[1]];
       
       snake = [head, mid, tail];
     }
 
-    // -------------------------
-    // Snake (カッコいいサイバーデザイン版)
-    // -------------------------
     function draw_snake() {
       const len = snake.length;
       
-      // 影（ネオン発光）の設定を有効化
       ctx.save();
       ctx.shadowBlur = HEX_SIZE * 0.4;
       
-      // 後ろの胴体から順番に描画（頭を一番上に重ねるため）
       for (let i = len - 1; i >= 0; i--) {
         const [q, r] = snake[i];
         
         if (i === 0) {
-          // --- 頭部のデザイン ---
-          ctx.shadowColor = "#00ff87"; // 鮮やかなネオン輝き
-          // メタリックなグラデーション
+          ctx.shadowColor = "#00ff87";
           const [cx, cy] = axial_to_pixel(q, r);
           let grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, HEX_SIZE);
           grad.addColorStop(0, "#8ef0b8");
@@ -336,28 +341,20 @@
           draw_head_eyes(snake[i]);
           
         } else {
-          // --- 胴体のデザイン ---
-          // 後ろにいくほど細く（グラデーション縮小）
-          const ratio = (len - i) / len; // 1(頭付近) ～ 0(尻尾)
-          const sizeMultiplier = 0.75 + ratio * 0.25; // 尻尾は少し細くする
+          const ratio = (len - i) / len;
+          const sizeMultiplier = 0.75 + ratio * 0.25; 
           
-          ctx.shadowColor = "rgba(0, 255, 135, " + (ratio * 0.4) + ")"; // 尻尾ほど光を弱く
+          ctx.shadowColor = "rgba(0, 255, 135, " + (ratio * 0.4) + ")"; 
           
-          // 胴体の色のグラデーション（頭から尻尾への色の変化）
-          let bodyGrad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height); // 仮の方向
-          // 徐々に深いサイバーブルーグリーンへ変化
           const rColor = Math.floor(58 + (16 - 58) * (1 - ratio));
           const gColor = Math.floor(163 + (75 - 163) * (1 - ratio));
           const bColor = Math.floor(106 + (69 - 106) * (1 - ratio));
           
-          // 元の関数を流用しつつ、サイズをリアルタイムに変えるためにカスタム描画
           const verts = draw_hex_vertices_raw(q, r);
           const [cx, cy] = axial_to_pixel(q, r);
           
-          // 立体感を出すためのオーバーラップ描画
           ctx.beginPath();
           verts.forEach((v, idx) => {
-            // 中心からの距離を ratio に応じて縮小して「細らせる」
             const sx = cx + (v[0] - cx) * 1.05 * sizeMultiplier;
             const sy = cy + (v[1] - cy) * 1.05 * sizeMultiplier;
             if (idx === 0) ctx.moveTo(sx, sy);
@@ -367,7 +364,6 @@
           ctx.fillStyle = `rgb(${rColor}, ${gColor}, ${bColor})`;
           ctx.fill();
           
-          // 発光するインナー回路ライン
           ctx.beginPath();
           verts.forEach((v, idx) => {
             const sx = cx + (v[0] - cx) * 0.85 * sizeMultiplier;
@@ -381,7 +377,7 @@
           ctx.stroke();
         }
       }
-      ctx.restore(); // 影の設定をリセット
+      ctx.restore(); 
     }
 
     function draw_head_eyes(head) {
@@ -407,24 +403,20 @@
       const rx = hx + forward[0]*eye_dist_forward - perp[0]*eye_dist_side;
       const ry = hy + forward[1]*eye_dist_forward - perp[1]*eye_dist_side;
 
-      // サイバーゴーグル風の光る目
       ctx.save();
       ctx.shadowBlur = 8;
-      ctx.shadowColor = "#00ffff"; // 目はサイバーブルーに発光
+      ctx.shadowColor = "#00ffff"; 
       
-      // 左目
       ctx.beginPath();
       ctx.fillStyle = "#00ffff";
       ctx.arc(lx, ly, eye_radius, 0, 2*Math.PI);
       ctx.fill();
       
-      // 右目
       ctx.beginPath();
       ctx.fillStyle = "#00ffff";
       ctx.arc(rx, ry, eye_radius, 0, 2*Math.PI);
       ctx.fill();
 
-      // スリット（鋭い瞳のライン）
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -439,55 +431,50 @@
       
       ctx.restore();
     }
-
+      
     // -------------------------
     // Render / overlay
     // -------------------------
     function render(show_overlay=null, overlay_big=false) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       draw_board();
-    // ハニーの見た目
-    if (honey !== null) {
+      
+      // ハニーの描画
+      if (honey !== null) {
         const [q, r] = honey;
         const [cx, cy] = axial_to_pixel(q, r);
         const verts = draw_hex_vertices_raw(q, r);
   
         ctx.save();
   
-        // 1. 全体のゴールド発光（ベース）
         ctx.shadowBlur = HEX_SIZE * 0.5;
         ctx.shadowColor = "#ff9400";
   
-        // 2. 一番外側の「濃いハニカム枠」
         ctx.beginPath();
         verts.forEach((v, idx) => {
             if (idx === 0) ctx.moveTo(v[0], v[1]);
             else ctx.lineTo(v[0], v[1]);
         });
         ctx.closePath();
-        ctx.fillStyle = "#804000"; // 枠のベースは深い琥珀ブラウン
+        ctx.fillStyle = "#804000"; 
         ctx.fill();
-        ctx.strokeStyle = "#ff7700"; // クッキリしたオレンジのセルの壁
+        ctx.strokeStyle = "#ff7700"; 
         ctx.lineWidth = 2;
         ctx.stroke();
   
-        // 発光を一度リセット（内側のレイヤーがボケないようにする）
         ctx.shadowBlur = 0;
   
-        // 3. 【重要】六角形を内側に縮小しながら重ねて「立体感」を出す（多重レイヤー構造）
-        // 外側から中心に向かって、六角形の形のままハチミツを明るくしていきます
         const layers = [
-            { scale: 0.90, color: "#cc6600" }, // 枠のすぐ内側の影
-            { scale: 0.80, color: "#ff9900" }, // 通常のハチミツ色
-            { scale: 0.65, color: "#ffbb00" }, // 明るいハチミツ色
-            { scale: 0.45, color: "#ffdd33" }, // 中心に近いとろみの輝き
-            { scale: 0.25, color: "#fff599" }  // ド真ん中の最も明るいハイライトコア
+            { scale: 0.90, color: "#cc6600" },
+            { scale: 0.80, color: "#ff9900" },
+            { scale: 0.65, color: "#ffbb00" },
+            { scale: 0.45, color: "#ffdd33" },
+            { scale: 0.25, color: "#fff599" } 
         ];
   
         layers.forEach(layer => {
             ctx.beginPath();
             verts.forEach((v, idx) => {
-            // 中心（cx, cy）に向かって、六角形の形状を維持したまま縮小
             const sx = cx + (v[0] - cx) * layer.scale;
             const sy = cy + (v[1] - cy) * layer.scale;
             if (idx === 0) ctx.moveTo(sx, sy);
@@ -498,96 +485,107 @@
             ctx.fill();
         });
   
-        // 4. イラスト特有の「エッジの斜めハイライト」
-        // 宝石のカットのように、六角形の上半分のフチに沿って、シャープな白い光沢の光をのせる
-        ctx.save();
-        ctx.globalCompositeOperation = "source-over";
         ctx.beginPath();
         ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
         ctx.lineWidth = 2;
-        // 六角形の左上から右上にかけてパキッとラインを引く
         ctx.moveTo(cx + (verts[4][0] - cx) * 0.85, cy + (verts[4][1] - cy) * 0.85);
         ctx.lineTo(cx + (verts[3][0] - cx) * 0.85, cy + (verts[3][1] - cy) * 0.85);
         ctx.lineTo(cx + (verts[2][0] - cx) * 0.85, cy + (verts[2][1] - cy) * 0.85);
         ctx.stroke();
+        
         ctx.restore();
       }
+
+      // 【超軽量版】ハニー出現エフェクトの描画と更新
+      if (honey_hex_effect) {
+        ctx.save();
+        ctx.globalAlpha = honey_hex_effect.alpha;
+        ctx.strokeStyle = "#ffcc00"; 
+        ctx.lineWidth = 3;
+
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const angle = (Math.PI / 3) * i;
+          const px = honey_hex_effect.cx + Math.cos(angle) * (HEX_SIZE * honey_hex_effect.scale);
+          const py = honey_hex_effect.cy + Math.sin(angle) * (HEX_SIZE * honey_hex_effect.scale);
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+
+        honey_hex_effect.scale += 0.6; 
+        honey_hex_effect.alpha -= 0.15; 
+
+        if (honey_hex_effect.alpha <= 0) {
+          honey_hex_effect = null;
+        }
+      }
+      
       draw_snake();
 
-      // 開始画面
+      // UIオーバーレイ
       if (show_overlay) {
         ctx.save();
   
-        // 1. すりガラス風の背景（暗くしつつ、背後を少し馴染ませる）
         ctx.fillStyle = "rgba(10, 10, 15, 0.75)";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
   
-        // 2. テキスト共通設定
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
   
         const lines = show_overlay.split("\n");
   
-        // 3. 1行目（タイトルや「ゲームオーバー」など、メインのデカ文字）
         if (lines[0]) {
             ctx.font = overlay_big ? "bold 44px sans-serif" : "bold 38px sans-serif";
-    
-            // タイトル文字をサイバーゴールドに発光させる
             ctx.shadowBlur = 15;
             ctx.shadowColor = "#ffd86b";
             ctx.fillStyle = "#ffd86b"; 
-    
             ctx.fillText(lines[0], CENTER_X, CENTER_Y - 30);
         }
   
-        // 発光をリセットして2行目以降の描画
         ctx.shadowBlur = 0;
   
-        // 4. 2行目（スコア表示などがある場合）
         if (lines[1] && lines.length > 2) {
             ctx.font = "20px sans-serif";
             ctx.fillStyle = "#cccccc";
             ctx.fillText(lines[1], CENTER_X, CENTER_Y + 15);
         }
   
-        // 5. 最下行（「画面タップで開始」などのアクション要求ボタン風表示）
         const actionText = lines[lines.length - 1];
         if (actionText) {
-            const btnY = CENTER_X + 75; // ボタンのY座標
+            const btnY = CENTER_X + 75; 
             ctx.font = "bold 16px sans-serif";
     
-            // ボタンのテキストの幅を計測して、枠線のサイズを決める
             const textWidth = ctx.measureText(actionText).width;
             const padX = 24;
             const padY = 12;
     
-            // ネオン風のボタン枠を描画
-            ctx.strokeStyle = "rgba(0, 255, 135, 0.6)"; // サイバーグリーン
+            ctx.strokeStyle = "rgba(0, 255, 135, 0.6)"; 
             ctx.lineWidth = 2;
             ctx.strokeRect(
-            CENTER_X - textWidth / 2 - padX, 
-            btnY - padY, 
-            textWidth + padX * 2, 
-            padY * 2
+                CENTER_X - textWidth / 2 - padX, 
+                btnY - padY, 
+                textWidth + padX * 2, 
+                padY * 2
             );
     
-            // ボタンの背景を薄く塗る
             ctx.fillStyle = "rgba(0, 255, 135, 0.1)";
             ctx.fillRect(
-            CENTER_X - textWidth / 2 - padX, 
-            btnY - padY, 
-            textWidth + padX * 2, 
-            padY * 2
-        );
+                CENTER_X - textWidth / 2 - padX, 
+                btnY - padY, 
+                textWidth + padX * 2, 
+                padY * 2
+            );
     
-            // 文字の描画
             ctx.fillStyle = "#00ff87";
             ctx.fillText(actionText, CENTER_X, btnY);
         }
   
         ctx.restore();
+      }
     }
-}
 
     // -------------------------
     // Game logic
@@ -605,14 +603,12 @@
       if (!in_board(new_head)) {
         game_over = true;
         stop_game(true);
-        set_status("ゲームオーバー（壁）");
         render(`ゲームオーバー\n最終スコア: ${score}\n画面タップで始めから`, true);
         return;
       }
       if (inSnake(new_head)) {
         game_over = true;
         stop_game(true);
-        set_status("ゲームオーバー（自己衝突）");
         render(`ゲームオーバー\n最終スコア: ${score}\n画面タップで始めから`, true);
         return;
       }
@@ -639,14 +635,13 @@
     function start_game() {
       if (game_over) {
         restart_game();
-        return; // リスタート時は一度ポーズ状態にする（すぐに動き出さないように）
+        return; 
       }
       if (running) return;
       running = true;
       if (interval_id === null) {
         interval_id = setInterval(step, STEP_MS);
       }
-      set_status("実行中");
       render();
     }
 
@@ -658,7 +653,6 @@
         interval_id = null;
       }
       if (!isGameOver) {
-        set_status("一時停止");
         render("一時停止\n画面タップで再開");
       }
     }
@@ -668,9 +662,7 @@
       score_span.innerText = score.toString();
       game_over = false;
       running = false;
-      set_status("停止中");
       
-      // ヘビを先に置いてからハチミツを出す（被り防止）
       place_initial_snake();
       spawn_one_random_honey_not_on_snake();
       
@@ -681,7 +673,6 @@
       }
     }
 
-    // タップ操作でゲームを開始・再開するハンドラー
     function handle_tap_start(e) {
       if (game_over) {
         restart_game();
@@ -771,29 +762,23 @@
       if (eq(new_dir, current_dir)) return;
       
       current_dir = new_dir;
-      step(); // Move immediately on key press
+      step(); 
     }
 
     // -------------------------
     // Initialization
     // -------------------------
-    function set_status(text) {
-      status_div.innerText = "状態: " + text;
-    }
-
     function init() {
-      DIR_MAPPING = compute_dir_mapping(); // 先にマッピングを計算
+      DIR_MAPPING = compute_dir_mapping(); 
       resize_canvas();
-      place_initial_snake(); // ヘビをド真ん中に置く
-      spawn_one_random_honey_not_on_snake(); // その後にハチミツ
+      place_initial_snake(); 
+      spawn_one_random_honey_not_on_snake(); 
       render("スタート！\n画面タップで開始");
-      set_status("停止中");
     }
 
     window.addEventListener("resize", resize_canvas);
     document.addEventListener("keydown", global_key_handler);
     
-    // タップイベントの登録
     canvas.addEventListener("mousedown", handle_tap_start);
     canvas.addEventListener("touchstart", handle_tap_start, { passive: true });
     
