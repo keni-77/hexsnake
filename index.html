@@ -6,45 +6,111 @@
   <title>Hex Snake</title>
 
   <style>
-    body { background:#111; color:#fff; font-family: sans-serif; text-align:center; margin:0; padding:0px; box-sizing:border-box; }
-    #top { max-width:1200px; margin:0 auto; }
-    #info { margin:8px 0; color:#ccc; }
-    canvas { background:#222; margin:10px auto; display:block; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.6); outline:none; touch-action:none; }
-    .canvas-wrapper {
-      position: relative;
-      display: inline-block;
-      margin: 10px auto;
-    }
-    canvas { 
-      background:#222; 
-      display: block; 
-      border-radius:8px; 
-      box-shadow:0 4px 12px rgba(0,0,0,0.6); 
-      outline:none; 
-      touch-action:none; 
-    }
-    .usage-guide {
-      position: absolute;
-      top: 12px;
-      right: 12px;
-      width: 20%;
-      height: auto;
-      opacity: 1.0;
-      z-index: 150;
-      pointer-events: none;
-      border-radius: 4px;
-      transition: opacity 0.2s;
-    }
-    .hint { color:#bbb; font-size:14px; margin-bottom:6px; }
-    #hud { display:flex; justify-content:center; gap:18px; align-items:center; color:#ddd; margin-top:8px; }
-    #status { color:#ddd; }
-    #score { color:#ffd86b; font-weight:700; }
-    button { display:none; } /* UI via keys */
-  </style>
+  /* 全体のベース：漆黒の宇宙やサイバー空間をイメージ */
+  body {
+    background-color: #0a0a12;
+    background-image: 
+      linear-gradient(rgba(18, 18, 32, 0.5) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(18, 18, 32, 0.5) 1px, transparent 1px);
+    background-size: 20px 20px; /* うっすら背景に走るグリッド線 */
+    color: #e2e8f0;
+    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    box-sizing: border-box;
+    overflow-x: hidden;
+  }
+
+  /* ゲームのメインタイトル */
+  h1 {
+    font-size: 2.8rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 4px;
+    margin: 0 0 5px 0;
+    background: linear-gradient(135deg, #ffd86b 0%, #ff7700 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 2px 8px rgba(255, 119, 0, 0.5));
+    text-align: center;
+  }
+
+  /* サブタイトル・キャッチコピー */
+  .subtitle {
+    font-size: 0.9rem;
+    color: #5f7594;
+    text-transform: uppercase;
+    letter-spacing: 6px;
+    margin-bottom: 25px;
+    text-align: center;
+  }
+
+  /* スコア表示エリア */
+  #score-container {
+    font-size: 1.4rem;
+    font-weight: bold;
+    color: #00ff87;
+    background: rgba(0, 255, 135, 0.05);
+    border: 1px solid rgba(0, 255, 135, 0.2);
+    padding: 8px 24px;
+    border-radius: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 0 15px rgba(0, 255, 135, 0.1);
+    letter-spacing: 1px;
+  }
+  
+  #score-container span {
+    color: #ffffff;
+    font-family: monospace;
+    margin-left: 5px;
+  }
+
+  /* canvasと画像を囲む外枠（以前作ったラッパー） */
+  .canvas-wrapper {
+    position: relative;
+    display: inline-block;
+    border: 2px solid rgba(95, 117, 148, 0.3);
+    border-radius: 12px;
+    padding: 6px;
+    background: rgba(15, 15, 25, 0.8);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+  }
+
+  canvas {
+    background: #0f0f16;
+    display: block;
+    border-radius: 8px;
+    outline: none;
+    touch-action: none;
+  }
+
+  /* 右上の操作説明画像（usage.png） */
+  .usage-guide {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 20%;
+    height: auto;
+    opacity: 1.0;
+    z-index: 150;
+    pointer-events: none;
+    transition: opacity 0.3s, transform 0.3s;
+  }
+
+  /* マウスをゲーム画面に乗せたら、ガイドを少しはっきり見せる */
+  .canvas-wrapper:hover .usage-guide {
+    transform: scale(1.25);
+  }
+</style>
 </head>
 <body>
   <div id="top">
-    <h1>六角形スネーク</h1>
+    <h1>HEXAGON SNAKE GAME</h1>
     <div id="info" class="hint">画面タップ または Enterで開始。スワイプ（または W Q A S D E）で曲がる。</div>
     <div class="canvas-wrapper">
       <canvas id="canvas"></canvas>
