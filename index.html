@@ -446,22 +446,81 @@
         ctx.restore();
       }
       draw_snake();
-      
+
+      // 開始画面
       if (show_overlay) {
         ctx.save();
-        ctx.fillStyle = "rgba(0,0,0,0.6)";
+  
+        // 1. すりガラス風の背景（暗くしつつ、背後を少し馴染ませる）
+        ctx.fillStyle = "rgba(10, 10, 15, 0.75)";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "#fff";
-        ctx.font = overlay_big ? "bold 48px sans-serif" : "bold 32px sans-serif";
+  
+        // 2. テキスト共通設定
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
+  
         const lines = show_overlay.split("\n");
-        lines.forEach((line, i) => {
-          ctx.fillText(line, CENTER_X, CENTER_Y + (i - (lines.length-1)/2) * (overlay_big ? 64 : 44));
-        });
+  
+        // 3. 1行目（タイトルや「ゲームオーバー」など、メインのデカ文字）
+        if (lines[0]) {
+            ctx.font = overlay_big ? "bold 44px sans-serif" : "bold 38px sans-serif";
+    
+            // タイトル文字をサイバーゴールドに発光させる
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = "#ffd86b";
+            ctx.fillStyle = "#ffd86b"; 
+    
+            ctx.fillText(lines[0], CENTER_X, CENTER_Y - 30);
+        }
+  
+        // 発光をリセットして2行目以降の描画
+        ctx.shadowBlur = 0;
+  
+        // 4. 2行目（スコア表示などがある場合）
+        if (lines[1] && lines.length > 2) {
+            ctx.font = "20px sans-serif";
+            ctx.fillStyle = "#cccccc";
+            ctx.fillText(lines[1], CENTER_X, CENTER_Y + 15);
+        }
+  
+        // 5. 最下行（「画面タップで開始」などのアクション要求ボタン風表示）
+        const actionText = lines[lines.length - 1];
+        if (actionText) {
+            const btnY = CENTER_X + 75; // ボタンのY座標
+            ctx.font = "bold 16px sans-serif";
+    
+            // ボタンのテキストの幅を計測して、枠線のサイズを決める
+            const textWidth = ctx.measureText(actionText).width;
+            const padX = 24;
+            const padY = 12;
+    
+            // ネオン風のボタン枠を描画
+            ctx.strokeStyle = "rgba(0, 255, 135, 0.6)"; // サイバーグリーン
+            ctx.lineWidth = 2;
+            ctx.strokeRect(
+            CENTER_X - textWidth / 2 - padX, 
+            btnY - padY, 
+            textWidth + padX * 2, 
+            padY * 2
+            );
+    
+            // ボタンの背景を薄く塗る
+            ctx.fillStyle = "rgba(0, 255, 135, 0.1)";
+            ctx.fillRect(
+            CENTER_X - textWidth / 2 - padX, 
+            btnY - padY, 
+            textWidth + padX * 2, 
+            padY * 2
+        );
+    
+            // 文字の描画
+            ctx.fillStyle = "#00ff87";
+            ctx.fillText(actionText, CENTER_X, btnY);
+        }
+  
         ctx.restore();
-      }
     }
+}
 
     // -------------------------
     // Game logic
