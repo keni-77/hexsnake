@@ -379,14 +379,71 @@
     function render(show_overlay=null, overlay_big=false) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       draw_board();
-      if (honey !== null) {
+    // ハニーの見た目
+    if (honey !== null) {
         const [q, r] = honey;
         const [cx, cy] = axial_to_pixel(q, r);
-        draw_hex_at(q, r, "#ffd86b", "#b36b00", true, false);
+        const verts = draw_hex_vertices_raw(q, r);
+  
+        ctx.save();
+  
+        // 1. 全体のゴールド発光（ベース）
+        ctx.shadowBlur = HEX_SIZE * 0.5;
+        ctx.shadowColor = "#ff9400";
+  
+        // 2. 一番外側の「濃いハニカム枠」
         ctx.beginPath();
-        ctx.fillStyle = "rgba(255,255,255,0.25)";
-        ctx.arc(cx - HEX_SIZE*0.2, cy - HEX_SIZE*0.2, HEX_SIZE*0.18, 0, 2*Math.PI);
+        verts.forEach((v, idx) => {
+            if (idx === 0) ctx.moveTo(v[0], v[1]);
+            else ctx.lineTo(v[0], v[1]);
+        });
+        ctx.closePath();
+        ctx.fillStyle = "#804000"; // 枠のベースは深い琥珀ブラウン
         ctx.fill();
+        ctx.strokeStyle = "#ff7700"; // クッキリしたオレンジのセルの壁
+        ctx.lineWidth = 2;
+        ctx.stroke();
+  
+        // 発光を一度リセット（内側のレイヤーがボケないようにする）
+        ctx.shadowBlur = 0;
+  
+        // 3. 【重要】六角形を内側に縮小しながら重ねて「立体感」を出す（多重レイヤー構造）
+        // 外側から中心に向かって、六角形の形のままハチミツを明るくしていきます
+        const layers = [
+            { scale: 0.90, color: "#cc6600" }, // 枠のすぐ内側の影
+            { scale: 0.80, color: "#ff9900" }, // 通常のハチミツ色
+            { scale: 0.65, color: "#ffbb00" }, // 明るいハチミツ色
+            { scale: 0.45, color: "#ffdd33" }, // 中心に近いとろみの輝き
+            { scale: 0.25, color: "#fff599" }  // ド真ん中の最も明るいハイライトコア
+        ];
+  
+        layers.forEach(layer => {
+            ctx.beginPath();
+            verts.forEach((v, idx) => {
+            // 中心（cx, cy）に向かって、六角形の形状を維持したまま縮小
+            const sx = cx + (v[0] - cx) * layer.scale;
+            const sy = cy + (v[1] - cy) * layer.scale;
+            if (idx === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+            });
+            ctx.closePath();
+            ctx.fillStyle = layer.color;
+            ctx.fill();
+        });
+  
+        // 4. イラスト特有の「エッジの斜めハイライト」
+        // 宝石のカットのように、六角形の上半分のフチに沿って、シャープな白い光沢の光をのせる
+        ctx.save();
+        ctx.globalCompositeOperation = "source-over";
+        ctx.beginPath();
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+        ctx.lineWidth = 2;
+        // 六角形の左上から右上にかけてパキッとラインを引く
+        ctx.moveTo(cx + (verts[4][0] - cx) * 0.85, cy + (verts[4][1] - cy) * 0.85);
+        ctx.lineTo(cx + (verts[3][0] - cx) * 0.85, cy + (verts[3][1] - cy) * 0.85);
+        ctx.lineTo(cx + (verts[2][0] - cx) * 0.85, cy + (verts[2][1] - cy) * 0.85);
+        ctx.stroke();
+        ctx.restore();
       }
       draw_snake();
       
