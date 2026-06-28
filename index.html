@@ -289,11 +289,7 @@
       for (let q = -BOARD_RADIUS; q <= BOARD_RADIUS; q++) {
         for (let r = -BOARD_RADIUS; r <= BOARD_RADIUS; r++) {
           if (Math.abs(q + r) <= BOARD_RADIUS) {
-            if (inSnake([q, r])) {
-              draw_hex_at(q, r, "rgba(0, 255, 135, 0.15)", "rgba(0, 255, 135, 0.4)");
-            } else {
-              draw_hex_at(q, r, "#12121a", "#1a1a24");
-            }
+            draw_hex_at(q, r, "#12121a", "#2a2a38");
           }
         }
       }
