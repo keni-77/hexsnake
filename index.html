@@ -446,29 +446,19 @@
       ctx.save();
       ctx.shadowBlur = 10;
       ctx.shadowColor = "#00ffff"; 
-      
+  
+      // 左目
       ctx.beginPath();
       ctx.fillStyle = "#00ffff";
       ctx.arc(lx, ly, eye_radius, 0, 2*Math.PI);
       ctx.fill();
-      
+  
+      // 右目
       ctx.beginPath();
       ctx.fillStyle = "#00ffff";
       ctx.arc(rx, ry, eye_radius, 0, 2*Math.PI);
       ctx.fill();
-
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(lx - perp[0]*eye_radius*0.6, ly - perp[1]*eye_radius*0.6);
-      ctx.lineTo(lx + perp[0]*eye_radius*0.6, ly + perp[1]*eye_radius*0.6);
-      ctx.stroke();
-      
-      ctx.beginPath();
-      ctx.moveTo(rx - perp[0]*eye_radius*0.6, ry - perp[1]*eye_radius*0.6);
-      ctx.lineTo(rx + perp[0]*eye_radius*0.6, ry + perp[1]*eye_radius*0.6);
-      ctx.stroke();
-      
+  
       ctx.restore();
     }
 
