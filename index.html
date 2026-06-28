@@ -12,7 +12,7 @@
     background-image: 
       linear-gradient(rgba(18, 18, 32, 0.5) 1px, transparent 1px),
       linear-gradient(90deg, rgba(18, 18, 32, 0.5) 1px, transparent 1px);
-    background-size: 20px 20px; /* うっすら背景に走るグリッド線 */
+    background-size: 20px 20px;
     color: #e2e8f0;
     font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
     margin: 0;
@@ -50,6 +50,14 @@
     text-align: center;
   }
 
+  /* 上部のUIエリア */
+  .top-ui-container {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+
   /* スコア表示エリア */
   #score-container {
     font-size: 1.4rem;
@@ -59,7 +67,6 @@
     border: 1px solid rgba(0, 255, 135, 0.2);
     padding: 8px 24px;
     border-radius: 20px;
-    margin-bottom: 20px;
     box-shadow: 0 0 15px rgba(0, 255, 135, 0.1);
     letter-spacing: 1px;
   }
@@ -70,7 +77,26 @@
     margin-left: 5px;
   }
 
-  /* canvasと画像を囲む外枠（以前作ったラッパー） */
+  /* Joy-Con接続ボタン */
+  .joycon-btn {
+    font-size: 1rem;
+    font-weight: bold;
+    color: #ff7700;
+    background: rgba(255, 119, 0, 0.05);
+    border: 1px solid rgba(255, 119, 0, 0.5);
+    padding: 8px 20px;
+    border-radius: 20px;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(255, 119, 0, 0.2);
+    transition: all 0.3s ease;
+  }
+
+  .joycon-btn:hover {
+    background: rgba(255, 119, 0, 0.2);
+    box-shadow: 0 0 15px rgba(255, 119, 0, 0.4);
+  }
+
+  /* canvasを囲む外枠 */
   .canvas-wrapper {
     position: relative;
     display: inline-block;
@@ -89,7 +115,7 @@
     touch-action: none;
   }
 
-  /* 右上の操作説明画像（usage.png） */
+  /* 右上の操作説明画像 */
   .usage-guide {
     position: absolute;
     top: 16px;
@@ -102,7 +128,6 @@
     transition: opacity 0.3s, transform 0.3s;
   }
 
-  /* マウスをゲーム画面に乗せたら、ガイドを少しはっきり見せる */
   .canvas-wrapper:hover .usage-guide {
     transform: scale(1.25);
   }
@@ -113,13 +138,16 @@
   <h1>Hexagon Snake Game</h1>
   <div class="subtitle">Cybernetic Honey Hunt</div>
 
-  <div id="score-container">
-    SCORE:<span id="score">0</span>
+  <div class="top-ui-container">
+    <div id="score-container">
+      SCORE:<span id="score">0</span>
+    </div>
+    <button id="joycon-btn" class="joycon-btn">🎮 Joy-Con接続</button>
   </div>
 
   <div class="canvas-wrapper">
     <canvas id="canvas"></canvas>
-    <img src="usage.png" alt="操作方法" class="usage-guide" />
+    <img src="usage.png" alt="操作方法" class="usage-guide" onerror="this.style.display='none'" />
   </div>
 
   <script>
@@ -128,7 +156,7 @@
     // -------------------------
     const BOARD_RADIUS = 6;
     const ROT_DEG = 30;
-    const STEP_MS_DEFAULT = 320;
+    const STEP_MS_DEFAULT = 215;
     const MIN_HEX_SIZE = 6;
     const CANVAS_MARGIN = 120;
 
@@ -147,9 +175,14 @@
     const COS_A = Math.cos(ROT_RAD);
     const SIN_A = Math.sin(ROT_RAD);
 
+    // ★座標・アニメーション管理
     let snake = [];
+    let prev_snake = []; // 1ステップ前の位置（滑らかな補間用）
+    let visual_snake = [];
+    let last_step_time = 0; // スムーズなアニメーション計算用のタイマー
+
     let current_dir = [0, -1];
-    let honey = null; // [q, r]
+    let honey = null; 
     let running = false;
     let game_over = false;
     let interval_id = null;
@@ -157,7 +190,17 @@
     let score = 0;
 
     const NEIGHBORS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
-    let DIR_MAPPING = {}; // 初期化時に計算されるように変更
+    let DIR_MAPPING = {}; 
+
+    let overlay_text = null;
+    let overlay_big = false;
+
+    // -------------------------
+    // Joy-Con Globals
+    // -------------------------
+    const joyconBtn = document.getElementById("joycon-btn");
+    let joyconDevice = null;
+    let lastJoyConKey = null; 
 
     // -------------------------
     // Geometry / helpers
@@ -195,9 +238,6 @@
       return Math.abs(q) <= BOARD_RADIUS && Math.abs(r) <= BOARD_RADIUS && Math.abs(q + r) <= BOARD_RADIUS;
     }
 
-    // -------------------------
-    // Responsive canvas sizing
-    // -------------------------
     function resize_canvas() {
       let w = Math.min(window.innerWidth - CANVAS_MARGIN, 900);
       if (w < 200) w = window.innerWidth - 40;
@@ -211,8 +251,6 @@
         (canvas.height - CANVAS_MARGIN*2) / (max_cols * 1.5)
       );
       if (HEX_SIZE < MIN_HEX_SIZE) HEX_SIZE = MIN_HEX_SIZE;
-      if (!running && !game_over) render(null);
-      else render();
     }
 
     // -------------------------
@@ -230,21 +268,8 @@
       return verts;
     }
 
-    function draw_hex_at(q, r, fill_color, stroke_color="#222", stroke=true, overlap=false) {
+    function draw_hex_at(q, r, fill_color, stroke_color="#222", stroke=true) {
       const verts = draw_hex_vertices_raw(q, r);
-      if (overlap) {
-        const [cx, cy] = axial_to_pixel(q, r);
-        ctx.beginPath();
-        verts.forEach((v, i) => {
-          const sx = cx + (v[0] - cx) * 1.06;
-          const sy = cy + (v[1] - cy) * 1.06;
-          if (i === 0) ctx.moveTo(sx, sy);
-          else ctx.lineTo(sx, sy);
-        });
-        ctx.closePath();
-        ctx.fillStyle = fill_color;
-        ctx.fill();
-      }
       ctx.beginPath();
       verts.forEach((v, i) => {
         if (i === 0) ctx.moveTo(v[0], v[1]);
@@ -264,7 +289,11 @@
       for (let q = -BOARD_RADIUS; q <= BOARD_RADIUS; q++) {
         for (let r = -BOARD_RADIUS; r <= BOARD_RADIUS; r++) {
           if (Math.abs(q + r) <= BOARD_RADIUS) {
-            draw_hex_at(q, r, "#2f2f2f", "#1f1f1f");
+            if (inSnake([q, r])) {
+              draw_hex_at(q, r, "rgba(0, 255, 135, 0.15)", "rgba(0, 255, 135, 0.4)");
+            } else {
+              draw_hex_at(q, r, "#12121a", "#1a1a24");
+            }
           }
         }
       }
@@ -276,13 +305,7 @@
     let honey_hex_effect = null;
 
     function trigger_honey_spawn_effect(cx, cy) {
-      // 粒子や波紋は使わず、シンプルな六角形エフェクトのみをセット
-      honey_hex_effect = {
-        cx: cx,
-        cy: cy,
-        scale: 1.0,
-        alpha: 1.0
-      };
+      honey_hex_effect = { cx: cx, cy: cy, scale: 1.0, alpha: 1.0 };
     }
 
     function spawn_one_random_honey_not_on_snake() {
@@ -307,6 +330,48 @@
       return honey;
     }
 
+    function draw_honey(timestamp) {
+        if (honey === null) return;
+        const [q, r] = honey;
+        const [cx, cy] = axial_to_pixel(q, r);
+        const verts = draw_hex_vertices_raw(q, r);
+
+        const pulse = 0.85 + 0.15 * Math.sin(timestamp / 200);
+
+        ctx.save();
+        ctx.shadowBlur = HEX_SIZE * 0.5;
+        ctx.shadowColor = "#ff9400";
+
+        ctx.beginPath();
+        verts.forEach((v, idx) => {
+            const sx = cx + (v[0] - cx) * pulse;
+            const sy = cy + (v[1] - cy) * pulse;
+            if (idx === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+        });
+        ctx.closePath();
+        ctx.fillStyle = "#ff7700"; 
+        ctx.fill();
+        ctx.strokeStyle = "#ffaa00"; 
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
+        const inner_pulse = 0.4 + 0.1 * Math.sin(timestamp / 200 + 1);
+        ctx.beginPath();
+        verts.forEach((v, idx) => {
+            const sx = cx + (v[0] - cx) * inner_pulse;
+            const sy = cy + (v[1] - cy) * inner_pulse;
+            if (idx === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+        });
+        ctx.closePath();
+        ctx.fillStyle = "#ffdd33";
+        ctx.fill();
+
+        ctx.restore();
+    }
+
     // -------------------------
     // Snake
     // -------------------------
@@ -319,84 +384,63 @@
       const tail = [0 - 2 * up_dir[0], 0 - 2 * up_dir[1]];
       
       snake = [head, mid, tail];
+      prev_snake = snake.map(cell => [...cell]); // 過去の位置を保持
+      last_step_time = performance.now();
+
+      visual_snake = snake.map(cell => {
+        const [px, py] = axial_to_pixel(cell[0], cell[1]);
+        return { x: px, y: py };
+      });
     }
 
     function draw_snake() {
-      const len = snake.length;
-      
+      const len = visual_snake.length;
+      if (len === 0) return;
+
       ctx.save();
-      ctx.shadowBlur = HEX_SIZE * 0.4;
-      
-      for (let i = len - 1; i >= 0; i--) {
-        const [q, r] = snake[i];
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      for (let i = len - 1; i > 0; i--) {
+        const p1 = [visual_snake[i].x, visual_snake[i].y];
+        const p2 = [visual_snake[i-1].x, visual_snake[i-1].y];
         
-        if (i === 0) {
-          ctx.shadowColor = "#00ff87";
-          const [cx, cy] = axial_to_pixel(q, r);
-          let grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, HEX_SIZE);
-          grad.addColorStop(0, "#8ef0b8");
-          grad.addColorStop(1, "#118c4f");
-          
-          draw_hex_at(q, r, grad, "#00ff87", true, true);
-          draw_head_eyes(snake[i]);
-          
-        } else {
-          const ratio = (len - i) / len;
-          const sizeMultiplier = 0.75 + ratio * 0.25; 
-          
-          ctx.shadowColor = "rgba(0, 255, 135, " + (ratio * 0.4) + ")"; 
-          
-          const rColor = Math.floor(58 + (16 - 58) * (1 - ratio));
-          const gColor = Math.floor(163 + (75 - 163) * (1 - ratio));
-          const bColor = Math.floor(106 + (69 - 106) * (1 - ratio));
-          
-          const verts = draw_hex_vertices_raw(q, r);
-          const [cx, cy] = axial_to_pixel(q, r);
-          
-          ctx.beginPath();
-          verts.forEach((v, idx) => {
-            const sx = cx + (v[0] - cx) * 1.05 * sizeMultiplier;
-            const sy = cy + (v[1] - cy) * 1.05 * sizeMultiplier;
-            if (idx === 0) ctx.moveTo(sx, sy);
-            else ctx.lineTo(sx, sy);
-          });
-          ctx.closePath();
-          ctx.fillStyle = `rgb(${rColor}, ${gColor}, ${bColor})`;
-          ctx.fill();
-          
-          ctx.beginPath();
-          verts.forEach((v, idx) => {
-            const sx = cx + (v[0] - cx) * 0.85 * sizeMultiplier;
-            const sy = cy + (v[1] - cy) * 0.85 * sizeMultiplier;
-            if (idx === 0) ctx.moveTo(sx, sy);
-            else ctx.lineTo(sx, sy);
-          });
-          ctx.closePath();
-          ctx.strokeStyle = `rgba(0, 255, 135, ${ratio * 0.3})`;
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-        }
+        const ratio1 = (len - i) / len;
+        const ratio2 = (len - i + 1) / len;
+        const avg_ratio = (ratio1 + ratio2) / 2;
+
+        ctx.beginPath();
+        ctx.moveTo(p1[0], p1[1]);
+        ctx.lineTo(p2[0], p2[1]);
+
+        ctx.lineWidth = HEX_SIZE * (0.6 + avg_ratio * 0.8);
+
+        const rColor = Math.floor(20 + 38 * avg_ratio);
+        const gColor = Math.floor(100 + 155 * avg_ratio);
+        const bColor = Math.floor(60 + 46 * avg_ratio);
+        
+        ctx.strokeStyle = `rgb(${rColor}, ${gColor}, ${bColor})`;
+        ctx.shadowColor = `rgba(0, 255, 135, ${avg_ratio * 0.6})`;
+        ctx.shadowBlur = HEX_SIZE * 0.5;
+        ctx.stroke();
       }
-      ctx.restore(); 
+
+      if (len > 1) {
+        const head = [visual_snake[0].x, visual_snake[0].y];
+        const neck = [visual_snake[1].x, visual_snake[1].y];
+        const angle = Math.atan2(head[1] - neck[1], head[0] - neck[0]);
+        draw_head_eyes_at(head[0], head[1], angle);
+      }
+      ctx.restore();
     }
 
-    function draw_head_eyes(head) {
-      const [dq, dr] = current_dir;
-      const [x0, y0] = axial_to_pixel_raw(0, 0);
-      const [x1, y1] = axial_to_pixel_raw(dq, dr);
-      const [rx0, ry0] = rotate_point(x0, y0);
-      const [rx1, ry1] = rotate_point(x1, y1);
-      const dx = rx1 - rx0;
-      const dy = ry1 - ry0;
-      const ang = Math.atan2(dy, dx);
-
-      const [hx, hy] = axial_to_pixel(head[0], head[1]);
-      const forward = [Math.cos(ang), Math.sin(ang)];
+    function draw_head_eyes_at(hx, hy, angle) {
+      const forward = [Math.cos(angle), Math.sin(angle)];
       const perp = [-forward[1], forward[0]];
 
-      const eye_dist_forward = HEX_SIZE * 0.4;
-      const eye_dist_side = HEX_SIZE * 0.25;
-      const eye_radius = Math.max(2, Math.floor(HEX_SIZE * 0.16));
+      const eye_dist_forward = HEX_SIZE * 0.25;
+      const eye_dist_side = HEX_SIZE * 0.35;
+      const eye_radius = Math.max(2, Math.floor(HEX_SIZE * 0.18));
 
       const lx = hx + forward[0]*eye_dist_forward + perp[0]*eye_dist_side;
       const ly = hy + forward[1]*eye_dist_forward + perp[1]*eye_dist_side;
@@ -404,7 +448,7 @@
       const ry = hy + forward[1]*eye_dist_forward - perp[1]*eye_dist_side;
 
       ctx.save();
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = 10;
       ctx.shadowColor = "#00ffff"; 
       
       ctx.beginPath();
@@ -420,83 +464,32 @@
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(lx - perp[0]*eye_radius*0.5, ly - perp[1]*eye_radius*0.5);
-      ctx.lineTo(lx + perp[0]*eye_radius*0.5, ly + perp[1]*eye_radius*0.5);
+      ctx.moveTo(lx - perp[0]*eye_radius*0.6, ly - perp[1]*eye_radius*0.6);
+      ctx.lineTo(lx + perp[0]*eye_radius*0.6, ly + perp[1]*eye_radius*0.6);
       ctx.stroke();
       
       ctx.beginPath();
-      ctx.moveTo(rx - perp[0]*eye_radius*0.5, ry - perp[1]*eye_radius*0.5);
-      ctx.lineTo(rx + perp[0]*eye_radius*0.5, ry + perp[1]*eye_radius*0.5);
+      ctx.moveTo(rx - perp[0]*eye_radius*0.6, ry - perp[1]*eye_radius*0.6);
+      ctx.lineTo(rx + perp[0]*eye_radius*0.6, ry + perp[1]*eye_radius*0.6);
       ctx.stroke();
       
       ctx.restore();
     }
-      
-    // -------------------------
-    // Render / overlay
-    // -------------------------
-    function render(show_overlay=null, overlay_big=false) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      draw_board();
-      
-      // ハニーの描画
-      if (honey !== null) {
-        const [q, r] = honey;
-        const [cx, cy] = axial_to_pixel(q, r);
-        const verts = draw_hex_vertices_raw(q, r);
-  
-        ctx.save();
-  
-        ctx.shadowBlur = HEX_SIZE * 0.5;
-        ctx.shadowColor = "#ff9400";
-  
-        ctx.beginPath();
-        verts.forEach((v, idx) => {
-            if (idx === 0) ctx.moveTo(v[0], v[1]);
-            else ctx.lineTo(v[0], v[1]);
-        });
-        ctx.closePath();
-        ctx.fillStyle = "#804000"; 
-        ctx.fill();
-        ctx.strokeStyle = "#ff7700"; 
-        ctx.lineWidth = 2;
-        ctx.stroke();
-  
-        ctx.shadowBlur = 0;
-  
-        const layers = [
-            { scale: 0.90, color: "#cc6600" },
-            { scale: 0.80, color: "#ff9900" },
-            { scale: 0.65, color: "#ffbb00" },
-            { scale: 0.45, color: "#ffdd33" },
-            { scale: 0.25, color: "#fff599" } 
-        ];
-  
-        layers.forEach(layer => {
-            ctx.beginPath();
-            verts.forEach((v, idx) => {
-            const sx = cx + (v[0] - cx) * layer.scale;
-            const sy = cy + (v[1] - cy) * layer.scale;
-            if (idx === 0) ctx.moveTo(sx, sy);
-            else ctx.lineTo(sx, sy);
-            });
-            ctx.closePath();
-            ctx.fillStyle = layer.color;
-            ctx.fill();
-        });
-  
-        ctx.beginPath();
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
-        ctx.lineWidth = 2;
-        ctx.moveTo(cx + (verts[4][0] - cx) * 0.85, cy + (verts[4][1] - cy) * 0.85);
-        ctx.lineTo(cx + (verts[3][0] - cx) * 0.85, cy + (verts[3][1] - cy) * 0.85);
-        ctx.lineTo(cx + (verts[2][0] - cx) * 0.85, cy + (verts[2][1] - cy) * 0.85);
-        ctx.stroke();
-        
-        ctx.restore();
-      }
 
-      // 【超軽量版】ハニー出現エフェクトの描画と更新
+    // -------------------------
+    // Render Loop & Overlays
+    // -------------------------
+    function set_overlay(text, big=false) {
+      overlay_text = text;
+      overlay_big = big;
+    }
+
+    function render_loop(timestamp) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      draw_board();
+      draw_honey(timestamp);
+      
       if (honey_hex_effect) {
         ctx.save();
         ctx.globalAlpha = honey_hex_effect.alpha;
@@ -515,27 +508,52 @@
         ctx.stroke();
         ctx.restore();
 
-        honey_hex_effect.scale += 1.0; 
-        honey_hex_effect.alpha -= 0.20; 
+        honey_hex_effect.scale += 0.15; 
+        honey_hex_effect.alpha -= 0.03; 
 
         if (honey_hex_effect.alpha <= 0) {
           honey_hex_effect = null;
         }
       }
       
+      while (visual_snake.length < snake.length) {
+        const last = visual_snake[visual_snake.length - 1];
+        visual_snake.push({ x: last.x, y: last.y });
+      }
+
+      // ★時間経過による「進捗度（0.0 〜 1.0）」を計算
+      const now = performance.now();
+      if (last_step_time === 0) last_step_time = now;
+      let progress = (now - last_step_time) / STEP_MS;
+      if (progress > 1.0) progress = 1.0;
+
+      // ★目標地点を、常に前のマスから今のマスへとスライドさせる
+      const LERP_FACTOR = 0.5; // 操作時のバネのような追従速度
+      for (let i = 0; i < snake.length; i++) {
+        // エサを食べて配列が伸びた瞬間は、前の位置データが無いので現在の位置を使う
+        const prev_cell = prev_snake[i] || snake[i];
+        
+        const [px, py] = axial_to_pixel(prev_cell[0], prev_cell[1]); // 前のマス
+        const [cx, cy] = axial_to_pixel(snake[i][0], snake[i][1]); // 今のマス
+
+        // 時間経過によるスライド目標地点の計算
+        const target_x = px + (cx - px) * progress;
+        const target_y = py + (cy - py) * progress;
+
+        // 計算したスライド目標地点に、描画用ヘビを追従（Lerp）させる
+        visual_snake[i].x += (target_x - visual_snake[i].x) * LERP_FACTOR;
+        visual_snake[i].y += (target_y - visual_snake[i].y) * LERP_FACTOR;
+      }
+
       draw_snake();
 
-      // UIオーバーレイ
-      if (show_overlay) {
+      if (overlay_text) {
         ctx.save();
-  
         ctx.fillStyle = "rgba(10, 10, 15, 0.75)";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-  
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-  
-        const lines = show_overlay.split("\n");
+        const lines = overlay_text.split("\n");
   
         if (lines[0]) {
             ctx.font = overlay_big ? "bold 44px sans-serif" : "bold 38px sans-serif";
@@ -544,51 +562,35 @@
             ctx.fillStyle = "#ffd86b"; 
             ctx.fillText(lines[0], CENTER_X, CENTER_Y - 30);
         }
-  
         ctx.shadowBlur = 0;
-  
         if (lines[1] && lines.length > 2) {
             ctx.font = "20px sans-serif";
             ctx.fillStyle = "#cccccc";
             ctx.fillText(lines[1], CENTER_X, CENTER_Y + 15);
         }
-  
         const actionText = lines[lines.length - 1];
         if (actionText) {
             const btnY = CENTER_X + 75; 
             ctx.font = "bold 16px sans-serif";
-    
             const textWidth = ctx.measureText(actionText).width;
             const padX = 24;
             const padY = 12;
-    
             ctx.strokeStyle = "rgba(0, 255, 135, 0.6)"; 
             ctx.lineWidth = 2;
-            ctx.strokeRect(
-                CENTER_X - textWidth / 2 - padX, 
-                btnY - padY, 
-                textWidth + padX * 2, 
-                padY * 2
-            );
-    
+            ctx.strokeRect(CENTER_X - textWidth / 2 - padX, btnY - padY, textWidth + padX * 2, padY * 2);
             ctx.fillStyle = "rgba(0, 255, 135, 0.1)";
-            ctx.fillRect(
-                CENTER_X - textWidth / 2 - padX, 
-                btnY - padY, 
-                textWidth + padX * 2, 
-                padY * 2
-            );
-    
+            ctx.fillRect(CENTER_X - textWidth / 2 - padX, btnY - padY, textWidth + padX * 2, padY * 2);
             ctx.fillStyle = "#00ff87";
             ctx.fillText(actionText, CENTER_X, btnY);
         }
-  
         ctx.restore();
       }
+
+      requestAnimationFrame(render_loop);
     }
 
     // -------------------------
-    // Game logic
+    // Game logic 
     // -------------------------
     function opposite(d1, d2) {
       return d1[0] === -d2[0] && d1[1] === -d2[1];
@@ -596,20 +598,19 @@
 
     function step() {
       if (!running) return;
+
+      // ★ステップ実行直前に、今の状態を「過去の座標」として保存
+      prev_snake = snake.map(cell => [...cell]);
+      last_step_time = performance.now();
+
       const [hq, hr] = snake[0];
       const [dq, dr] = current_dir;
       const new_head = [hq + dq, hr + dr];
       
-      if (!in_board(new_head)) {
+      if (!in_board(new_head) || inSnake(new_head)) {
         game_over = true;
         stop_game(true);
-        render(`ゲームオーバー\n最終スコア: ${score}\n画面タップで始めから`, true);
-        return;
-      }
-      if (inSnake(new_head)) {
-        game_over = true;
-        stop_game(true);
-        render(`ゲームオーバー\n最終スコア: ${score}\n画面タップで始めから`, true);
+        set_overlay(`ゲームオーバー\n最終スコア: ${score}\n画面タップで始めから`, true);
         return;
       }
       
@@ -621,12 +622,19 @@
       } else {
         snake.pop();
       }
-      render();
     }
 
     function score_increment() {
       score += 1;
       score_span.innerText = score.toString();
+    }
+
+    // ★操作した瞬間にタイマーをリセットし、連続して２度動いてしまうのを防ぐ
+    function reset_interval() {
+      if (interval_id !== null) {
+        clearInterval(interval_id);
+      }
+      interval_id = setInterval(step, STEP_MS);
     }
 
     // -------------------------
@@ -639,10 +647,11 @@
       }
       if (running) return;
       running = true;
+      set_overlay(null);
       if (interval_id === null) {
+        last_step_time = performance.now(); // 再開時に時間が飛ばないように調整
         interval_id = setInterval(step, STEP_MS);
       }
-      render();
     }
 
     function stop_game(isGameOver=false) {
@@ -653,7 +662,7 @@
         interval_id = null;
       }
       if (!isGameOver) {
-        render("一時停止\n画面タップで再開");
+        set_overlay("一時停止\n画面タップで再開");
       }
     }
 
@@ -666,7 +675,7 @@
       place_initial_snake();
       spawn_one_random_honey_not_on_snake();
       
-      render("スタート！\n画面タップで開始");
+      set_overlay("スタート！\n画面タップで開始");
       if (interval_id !== null) {
         clearInterval(interval_id);
         interval_id = null;
@@ -763,6 +772,82 @@
       
       current_dir = new_dir;
       step(); 
+      reset_interval(); // ★操作したらタイマーリセット（2重に進むのを防止）
+    }
+
+    // -------------------------
+    // Joy-Con Handling (WebHID)
+    // -------------------------
+    joyconBtn.addEventListener('click', async () => {
+      try {
+        const devices = await navigator.hid.requestDevice({
+          filters: [{ vendorId: 0x057e }] 
+        });
+        if (devices.length === 0) return;
+        
+        joyconDevice = devices[0];
+        await joyconDevice.open();
+        
+        joyconBtn.innerText = "🎮 接続済み";
+        joyconBtn.style.color = "#00ff87";
+        joyconBtn.style.borderColor = "#00ff87";
+        joyconBtn.style.background = "rgba(0, 255, 135, 0.1)";
+
+        joyconDevice.addEventListener("inputreport", handleJoyConInput);
+        
+        canvas.focus();
+      } catch (err) {
+        console.error("Joy-Con connection failed:", err);
+        alert("Joy-Conの接続に失敗しました。");
+      }
+    });
+
+    function handleJoyConInput(e) {
+      if (!running) return; 
+      
+      const { data, reportId } = e;
+      
+      if (reportId === 0x30) {
+        const b0 = data.getUint8(3);
+        const b1 = data.getUint8(4);
+        const b2 = data.getUint8(5);
+        
+        const lx = b0 | ((b1 & 0xF) << 8);
+        const ly = (b1 >> 4) | (b2 << 4);
+
+        const dx = lx - 2048;
+        const dy = -(ly - 2048); 
+
+        if (Math.sqrt(dx * dx + dy * dy) < 800) {
+          lastJoyConKey = null; 
+          return;
+        }
+
+        const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+
+        const desired_angles = {w: -90, e: -30, d: 30, s: 90, a: 150, q: -150};
+        let bestKey = null;
+        let minDiff = 9999;
+
+        for (let key in desired_angles) {
+          let diff = (angle - desired_angles[key] + 180) % 360 - 180;
+          if (Math.abs(diff) < minDiff) {
+            minDiff = Math.abs(diff);
+            bestKey = key;
+          }
+        }
+
+        if (bestKey && bestKey !== lastJoyConKey) {
+          lastJoyConKey = bestKey;
+          
+          const new_dir = DIR_MAPPING[bestKey];
+          if (!opposite(new_dir, current_dir) && !eq(new_dir, current_dir)) {
+            current_dir = new_dir;
+            step(); 
+            reset_interval(); // ★JoyCon入力時も同様にタイマーリセット
+          }
+        }
+      }
     }
 
     // -------------------------
@@ -773,7 +858,10 @@
       resize_canvas();
       place_initial_snake(); 
       spawn_one_random_honey_not_on_snake(); 
-      render("スタート！\n画面タップで開始");
+      
+      set_overlay("スタート！\n画面タップで開始");
+      
+      requestAnimationFrame(render_loop);
     }
 
     window.addEventListener("resize", resize_canvas);
