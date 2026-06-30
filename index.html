@@ -6,7 +6,6 @@
   <title>Hex Snake</title>
 
   <style>
-  /* 全体のベース：漆黒の宇宙やサイバー空間をイメージ */
   body {
     background-color: #0a0a12;
     background-image: 
@@ -26,7 +25,6 @@
     overflow-x: hidden;
   }
 
-  /* ゲームのメインタイトル */
   h1 {
     font-size: 2.8rem;
     font-weight: 900;
@@ -40,7 +38,6 @@
     text-align: center;
   }
 
-  /* サブタイトル・キャッチコピー */
   .subtitle {
     font-size: 0.9rem;
     color: #5f7594;
@@ -50,7 +47,6 @@
     text-align: center;
   }
 
-  /* 上部のUIエリア */
   .top-ui-container {
     display: flex;
     gap: 20px;
@@ -58,7 +54,6 @@
     margin-bottom: 20px;
   }
 
-  /* スコア表示エリア */
   #score-container {
     font-size: 1.4rem;
     font-weight: bold;
@@ -77,26 +72,6 @@
     margin-left: 5px;
   }
 
-  /* Joy-Con接続ボタン */
-  .joycon-btn {
-    font-size: 1rem;
-    font-weight: bold;
-    color: #ff7700;
-    background: rgba(255, 119, 0, 0.05);
-    border: 1px solid rgba(255, 119, 0, 0.5);
-    padding: 8px 20px;
-    border-radius: 20px;
-    cursor: pointer;
-    box-shadow: 0 0 10px rgba(255, 119, 0, 0.2);
-    transition: all 0.3s ease;
-  }
-
-  .joycon-btn:hover {
-    background: rgba(255, 119, 0, 0.2);
-    box-shadow: 0 0 15px rgba(255, 119, 0, 0.4);
-  }
-
-  /* canvasを囲む外枠 */
   .canvas-wrapper {
     position: relative;
     display: inline-block;
@@ -115,7 +90,6 @@
     touch-action: none;
   }
 
-  /* 右上の操作説明画像 */
   .usage-guide {
     position: absolute;
     top: 16px;
@@ -142,7 +116,6 @@
     <div id="score-container">
       SCORE:<span id="score">0</span>
     </div>
-    <button id="joycon-btn" class="joycon-btn">🎮 Joy-Con接続</button>
   </div>
 
   <div class="canvas-wrapper">
@@ -156,7 +129,7 @@
     // -------------------------
     const BOARD_RADIUS = 6;
     const ROT_DEG = 30;
-    const STEP_MS_DEFAULT = 215;
+    const STEP_MS_DEFAULT = 180;
     const MIN_HEX_SIZE = 6;
     const CANVAS_MARGIN = 120;
 
@@ -177,9 +150,9 @@
 
     // ★座標・アニメーション管理
     let snake = [];
-    let prev_snake = []; // 1ステップ前の位置（滑らかな補間用）
+    let prev_snake = []; 
     let visual_snake = [];
-    let last_step_time = 0; // スムーズなアニメーション計算用のタイマー
+    let last_step_time = 0; 
 
     let current_dir = [0, -1];
     let honey = null; 
@@ -189,18 +162,21 @@
     let STEP_MS = STEP_MS_DEFAULT;
     let score = 0;
 
+    // ★衝突・爆発エフェクト管理
+    let crashing = false;
+    let crash_effect_triggered = false;
+    let crash_particles = [];
+    let crash_time = 0;
+    
+    // ★猶予期間（めり込み）管理
+    let in_fatal_grace = false;
+    let pre_fatal_snake = [];
+
     const NEIGHBORS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
     let DIR_MAPPING = {}; 
 
     let overlay_text = null;
     let overlay_big = false;
-
-    // -------------------------
-    // Joy-Con Globals
-    // -------------------------
-    const joyconBtn = document.getElementById("joycon-btn");
-    let joyconDevice = null;
-    let lastJoyConKey = null; 
 
     // -------------------------
     // Geometry / helpers
@@ -380,7 +356,7 @@
       const tail = [0 - 2 * up_dir[0], 0 - 2 * up_dir[1]];
       
       snake = [head, mid, tail];
-      prev_snake = snake.map(cell => [...cell]); // 過去の位置を保持
+      prev_snake = snake.map(cell => [...cell]); 
       last_step_time = performance.now();
 
       visual_snake = snake.map(cell => {
@@ -397,20 +373,10 @@
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
 
-      for (let i = len - 1; i > 0; i--) {
-        const p1 = [visual_snake[i].x, visual_snake[i].y];
-        const p2 = [visual_snake[i-1].x, visual_snake[i-1].y];
-        
-        const ratio1 = (len - i) / len;
-        const ratio2 = (len - i + 1) / len;
-        const avg_ratio = (ratio1 + ratio2) / 2;
+      for (let i = len - 1; i >= 0; i--) {
+        const avg_ratio = (len - i) / len;
 
-        ctx.beginPath();
-        ctx.moveTo(p1[0], p1[1]);
-        ctx.lineTo(p2[0], p2[1]);
-
-        ctx.lineWidth = HEX_SIZE * (0.6 + avg_ratio * 0.8);
-
+        ctx.lineWidth = HEX_SIZE * (0.5 + avg_ratio * 0.6);
         const rColor = Math.floor(20 + 38 * avg_ratio);
         const gColor = Math.floor(100 + 155 * avg_ratio);
         const bColor = Math.floor(60 + 46 * avg_ratio);
@@ -418,14 +384,42 @@
         ctx.strokeStyle = `rgb(${rColor}, ${gColor}, ${bColor})`;
         ctx.shadowColor = `rgba(0, 255, 135, ${avg_ratio * 0.6})`;
         ctx.shadowBlur = HEX_SIZE * 0.5;
+
+        ctx.beginPath();
+        if (i === len - 1) {
+            if (len > 1) {
+                const p_curr = visual_snake[i];
+                const p_prev = visual_snake[i-1];
+                const mid = { x: (p_curr.x + p_prev.x)/2, y: (p_curr.y + p_prev.y)/2 };
+                ctx.moveTo(p_curr.x, p_curr.y);
+                ctx.lineTo(mid.x, mid.y);
+            } else {
+                ctx.moveTo(visual_snake[0].x, visual_snake[0].y);
+                ctx.lineTo(visual_snake[0].x, visual_snake[0].y);
+            }
+        } else if (i === 0) {
+            const p_curr = visual_snake[0];
+            const p_next = visual_snake[1];
+            const mid = { x: (p_curr.x + p_next.x)/2, y: (p_curr.y + p_next.y)/2 };
+            ctx.moveTo(mid.x, mid.y);
+            ctx.lineTo(p_curr.x, p_curr.y);
+        } else {
+            const p_curr = visual_snake[i];
+            const p_next = visual_snake[i+1];
+            const p_prev = visual_snake[i-1];
+            const mid_next = { x: (p_curr.x + p_next.x)/2, y: (p_curr.y + p_next.y)/2 };
+            const mid_prev = { x: (p_curr.x + p_prev.x)/2, y: (p_curr.y + p_prev.y)/2 };
+            ctx.moveTo(mid_next.x, mid_next.y);
+            ctx.quadraticCurveTo(p_curr.x, p_curr.y, mid_prev.x, mid_prev.y);
+        }
         ctx.stroke();
       }
 
       if (len > 1) {
-        const head = [visual_snake[0].x, visual_snake[0].y];
-        const neck = [visual_snake[1].x, visual_snake[1].y];
-        const angle = Math.atan2(head[1] - neck[1], head[0] - neck[0]);
-        draw_head_eyes_at(head[0], head[1], angle);
+        const head = visual_snake[0];
+        const neck = visual_snake[1];
+        const angle = Math.atan2(head.y - neck.y, head.x - neck.x);
+        draw_head_eyes_at(head.x, head.y, angle);
       }
       ctx.restore();
     }
@@ -447,13 +441,11 @@
       ctx.shadowBlur = 10;
       ctx.shadowColor = "#00ffff"; 
   
-      // 左目
       ctx.beginPath();
       ctx.fillStyle = "#00ffff";
       ctx.arc(lx, ly, eye_radius, 0, 2*Math.PI);
       ctx.fill();
   
-      // 右目
       ctx.beginPath();
       ctx.fillStyle = "#00ffff";
       ctx.arc(rx, ry, eye_radius, 0, 2*Math.PI);
@@ -507,31 +499,82 @@
         visual_snake.push({ x: last.x, y: last.y });
       }
 
-      // ★時間経過による「進捗度（0.0 〜 1.0）」を計算
       const now = performance.now();
       if (last_step_time === 0) last_step_time = now;
       let progress = (now - last_step_time) / STEP_MS;
       if (progress > 1.0) progress = 1.0;
 
-      // ★目標地点を、常に前のマスから今のマスへとスライドさせる
-      const LERP_FACTOR = 0.5; // 操作時のバネのような追従速度
+      // ★猶予時間内に回避されず、めり込み(progress=1.0)が完了したら爆発へ移行
+      if (in_fatal_grace && progress >= 1.0 && running) {
+          in_fatal_grace = false;
+          running = false;
+          game_over = true;
+          crashing = true;
+          crash_effect_triggered = false;
+          if (interval_id !== null) {
+              clearInterval(interval_id);
+              interval_id = null;
+          }
+      }
+
+      if (crashing && progress >= 1.0) {
+          if (!crash_effect_triggered) {
+              crash_effect_triggered = true;
+              crash_time = now;
+              for(let i=0; i<40; i++){
+                  const angle = Math.random() * Math.PI * 2;
+                  const speed = 1 + Math.random() * 8;
+                  crash_particles.push({
+                      x: visual_snake[0].x,
+                      y: visual_snake[0].y,
+                      vx: Math.cos(angle) * speed,
+                      vy: Math.sin(angle) * speed,
+                      size: 2 + Math.random() * 5,
+                      alpha: 1,
+                      color: Math.random() > 0.5 ? "#ff0055" : "#ffcc00"
+                  });
+              }
+          } else if (now - crash_time > 600) {
+              if (game_over && overlay_text === null) {
+                  set_overlay(`ゲームオーバー\n最終スコア: ${score}\n画面タップで始めから`, true);
+              }
+          }
+      }
+
+      const LERP_FACTOR = 0.5; 
       for (let i = 0; i < snake.length; i++) {
-        // エサを食べて配列が伸びた瞬間は、前の位置データが無いので現在の位置を使う
         const prev_cell = prev_snake[i] || snake[i];
         
-        const [px, py] = axial_to_pixel(prev_cell[0], prev_cell[1]); // 前のマス
-        const [cx, cy] = axial_to_pixel(snake[i][0], snake[i][1]); // 今のマス
+        const [px, py] = axial_to_pixel(prev_cell[0], prev_cell[1]); 
+        const [cx, cy] = axial_to_pixel(snake[i][0], snake[i][1]); 
 
-        // 時間経過によるスライド目標地点の計算
         const target_x = px + (cx - px) * progress;
         const target_y = py + (cy - py) * progress;
 
-        // 計算したスライド目標地点に、描画用ヘビを追従（Lerp）させる
         visual_snake[i].x += (target_x - visual_snake[i].x) * LERP_FACTOR;
         visual_snake[i].y += (target_y - visual_snake[i].y) * LERP_FACTOR;
       }
 
       draw_snake();
+
+      if (crash_particles.length > 0) {
+        ctx.save();
+        crash_particles = crash_particles.filter(p => {
+            p.alpha -= 0.03;
+            if (p.alpha <= 0) return false;
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vx *= 0.92;
+            p.vy *= 0.92;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = Math.max(0, p.alpha);
+            ctx.fill();
+            return true;
+        });
+        ctx.restore();
+      }
 
       if (overlay_text) {
         ctx.save();
@@ -583,25 +626,39 @@
     }
 
     function step() {
-      if (!running) return;
-
-      // ★ステップ実行直前に、今の状態を「過去の座標」として保存
-      prev_snake = snake.map(cell => [...cell]);
-      last_step_time = performance.now();
+      if (!running && !crashing) return;
 
       const [hq, hr] = snake[0];
       const [dq, dr] = current_dir;
       const new_head = [hq + dq, hr + dr];
       
-      if (!in_board(new_head) || inSnake(new_head)) {
-        game_over = true;
-        stop_game(true);
-        set_overlay(`ゲームオーバー\n最終スコア: ${score}\n画面タップで始めから`, true);
-        return;
+      const is_fatal = !in_board(new_head) || inSnake(new_head);
+
+      // ★ぶつかるセルへ向かってめり込んでいく処理を開始
+      if (is_fatal) {
+          in_fatal_grace = true;
+          pre_fatal_snake = snake.map(c => [...c]);
+          
+          prev_snake = snake.map(c => [...c]);
+          snake.unshift(new_head); // 壁などのセルを一旦頭として追加する（しっぽは減らさない）
+          
+          last_step_time = performance.now();
+          STEP_MS = 300; // 0.3秒かけて滑らかにめり込む
+          
+          // めり込み中は自動で次のステップに進まないようにタイマーを停止
+          if (interval_id !== null) {
+              clearInterval(interval_id);
+              interval_id = null;
+          }
+          return; 
       }
       
+      prev_snake = snake.map(cell => [...cell]);
       snake.unshift(new_head);
       
+      last_step_time = performance.now();
+      STEP_MS = STEP_MS_DEFAULT; // 通常速度
+
       if (honey !== null && eq(new_head, honey)) {
         score_increment();
         spawn_one_random_honey_not_on_snake();
@@ -615,27 +672,30 @@
       score_span.innerText = score.toString();
     }
 
-    // ★操作した瞬間にタイマーをリセットし、連続して２度動いてしまうのを防ぐ
     function reset_interval() {
       if (interval_id !== null) {
         clearInterval(interval_id);
       }
-      interval_id = setInterval(step, STEP_MS);
+      if (!in_fatal_grace && running) {
+          interval_id = setInterval(step, STEP_MS);
+      }
     }
 
     // -------------------------
     // Controls / events
     // -------------------------
     function start_game() {
-      if (game_over) {
+      if (game_over || crashing) {
         restart_game();
         return; 
       }
       if (running) return;
       running = true;
       set_overlay(null);
-      if (interval_id === null) {
-        last_step_time = performance.now(); // 再開時に時間が飛ばないように調整
+      
+      // 一時停止から復帰時はアニメーション時間をリセットしてあげる
+      last_step_time = performance.now(); 
+      if (interval_id === null && !in_fatal_grace) {
         interval_id = setInterval(step, STEP_MS);
       }
     }
@@ -657,6 +717,12 @@
       score_span.innerText = score.toString();
       game_over = false;
       running = false;
+      crashing = false;
+      crash_effect_triggered = false;
+      crash_particles = [];
+      in_fatal_grace = false;
+      pre_fatal_snake = [];
+      STEP_MS = STEP_MS_DEFAULT;
       
       place_initial_snake();
       spawn_one_random_honey_not_on_snake();
@@ -669,7 +735,7 @@
     }
 
     function handle_tap_start(e) {
-      if (game_over) {
+      if (game_over || crashing) {
         restart_game();
         start_game();
       } else if (!running) {
@@ -731,7 +797,7 @@
     function global_key_handler(evt) {
       const key = evt.key;
       if (key === "Enter") {
-        if (game_over) {
+        if (game_over || crashing) {
           restart_game();
           start_game();
         } else if (!running) {
@@ -741,7 +807,7 @@
       } else if (key === "Escape") {
         if (running) {
           stop_game();
-        } else if (!game_over) {
+        } else if (!game_over && !crashing) {
           start_game();
         }
         return;
@@ -753,86 +819,19 @@
       if (!(k in DIR_MAPPING)) return;
       
       const new_dir = DIR_MAPPING[k];
-      if (opposite(new_dir, current_dir)) return;
-      if (eq(new_dir, current_dir)) return;
-      
-      current_dir = new_dir;
-      step(); 
-      reset_interval(); // ★操作したらタイマーリセット（2重に進むのを防止）
-    }
-
-    // -------------------------
-    // Joy-Con Handling (WebHID)
-    // -------------------------
-    joyconBtn.addEventListener('click', async () => {
-      try {
-        const devices = await navigator.hid.requestDevice({
-          filters: [{ vendorId: 0x057e }] 
-        });
-        if (devices.length === 0) return;
+      if (!opposite(new_dir, current_dir) && !eq(new_dir, current_dir)) {
+        current_dir = new_dir;
         
-        joyconDevice = devices[0];
-        await joyconDevice.open();
-        
-        joyconBtn.innerText = "🎮 接続済み";
-        joyconBtn.style.color = "#00ff87";
-        joyconBtn.style.borderColor = "#00ff87";
-        joyconBtn.style.background = "rgba(0, 255, 135, 0.1)";
-
-        joyconDevice.addEventListener("inputreport", handleJoyConInput);
-        
-        canvas.focus();
-      } catch (err) {
-        console.error("Joy-Con connection failed:", err);
-        alert("Joy-Conの接続に失敗しました。");
-      }
-    });
-
-    function handleJoyConInput(e) {
-      if (!running) return; 
-      
-      const { data, reportId } = e;
-      
-      if (reportId === 0x30) {
-        const b0 = data.getUint8(3);
-        const b1 = data.getUint8(4);
-        const b2 = data.getUint8(5);
-        
-        const lx = b0 | ((b1 & 0xF) << 8);
-        const ly = (b1 >> 4) | (b2 << 4);
-
-        const dx = lx - 2048;
-        const dy = -(ly - 2048); 
-
-        if (Math.sqrt(dx * dx + dy * dy) < 800) {
-          lastJoyConKey = null; 
-          return;
+        // ★めり込み（猶予期間）中にキーが押されたら、めり込んだ位置から新しいマスへ急旋回する！
+        if (in_fatal_grace) {
+            in_fatal_grace = false;
+            snake = pre_fatal_snake.map(c => [...c]); // ヘビの論理位置をぶつかる直前に戻す
+            while (visual_snake.length > snake.length) {
+                visual_snake.pop(); // 描画用ヘビのしっぽの数を合わせる
+            }
         }
-
-        const angle = Math.atan2(dy, dx) * 180 / Math.PI;
-
-        const desired_angles = {w: -90, e: -30, d: 30, s: 90, a: 150, q: -150};
-        let bestKey = null;
-        let minDiff = 9999;
-
-        for (let key in desired_angles) {
-          let diff = (angle - desired_angles[key] + 180) % 360 - 180;
-          if (Math.abs(diff) < minDiff) {
-            minDiff = Math.abs(diff);
-            bestKey = key;
-          }
-        }
-
-        if (bestKey && bestKey !== lastJoyConKey) {
-          lastJoyConKey = bestKey;
-          
-          const new_dir = DIR_MAPPING[bestKey];
-          if (!opposite(new_dir, current_dir) && !eq(new_dir, current_dir)) {
-            current_dir = new_dir;
-            step(); 
-            reset_interval(); // ★JoyCon入力時も同様にタイマーリセット
-          }
-        }
+        step(); 
+        reset_interval(); 
       }
     }
 
