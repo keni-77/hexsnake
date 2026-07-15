@@ -90,21 +90,7 @@
     touch-action: none;
   }
 
-  .usage-guide {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    width: 20%;
-    height: auto;
-    opacity: 1.0;
-    z-index: 150;
-    pointer-events: none;
-    transition: opacity 0.3s, transform 0.3s;
-  }
-
-  .canvas-wrapper:hover .usage-guide {
-    transform: scale(1.25);
-  }
+  
   </style>
 </head>
 <body>
@@ -120,11 +106,19 @@
 
   <div class="canvas-wrapper">
     <canvas id="canvas"></canvas>
-    <img src="usage.png" alt="操作方法" class="usage-guide" onerror="this.style.display='none'" />
   </div>
 
+    <script src="https://cdn.discordapp.com/embedded-apps/sdk/embedded.js"></script>
   <script>
-    // -------------------------
+
+      if (window.DiscordSDK) {
+  // Discordアクティビティとして動いている
+  DiscordSDK.ready.then(async () => {
+    const { user } = await DiscordSDK.commands.getUser();
+    console.log("Discord user:", user.username);
+  });
+} else {
+   // -------------------------
     // Config
     // -------------------------
     const BOARD_RADIUS = 6;
@@ -504,8 +498,8 @@
       let progress = (now - last_step_time) / STEP_MS;
       if (progress > 1.0) progress = 1.0;
 
-      // ★猶予時間内に回避されず、めり込み(progress=1.0)が完了したら爆発へ移行
-      if (in_fatal_grace && progress >= 1.0 && running) {
+      // ★猶予時間内に回避されず、めり込み(progress=0.4)が完了したら爆発へ移行
+      if (in_fatal_grace && progress >= 0.4 && running) {
           in_fatal_grace = false;
           running = false;
           game_over = true;
@@ -858,7 +852,8 @@
     canvas.tabIndex = 0;
     canvas.addEventListener("click", () => canvas.focus());
 
-    init();
+    init(); 
+}
 
   </script>
   <script src="swipe.js"></script>
