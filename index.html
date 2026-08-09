@@ -1,9 +1,7 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
+<!DOCTYPE html><html lang="ja"><head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Hex Snake</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+  <title>HEXSNAKE</title>
 
   <style>
   body {
@@ -15,71 +13,53 @@
     color: #e2e8f0;
     font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
     margin: 0;
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
     box-sizing: border-box;
-    overflow-x: hidden;
+    overflow: hidden; /* スクロールを完全に禁止 */
   }
 
-  h1 {
-    font-size: 2.8rem;
-    font-weight: 900;
-    text-transform: uppercase;
-    letter-spacing: 4px;
-    margin: 0 0 5px 0;
-    background: linear-gradient(135deg, #ffd86b 0%, #ff7700 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 2px 8px rgba(255, 119, 0, 0.5));
-    text-align: center;
-  }
-
-  .subtitle {
-    font-size: 0.9rem;
-    color: #5f7594;
-    text-transform: uppercase;
-    letter-spacing: 6px;
-    margin-bottom: 25px;
-    text-align: center;
-  }
-
+  /* スコアを画面左上に浮かせる */
   .top-ui-container {
-    display: flex;
-    gap: 20px;
-    align-items: center;
-    margin-bottom: 20px;
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 100;
   }
 
   #score-container {
-    font-size: 1.4rem;
+    font-size: 1.2rem;
     font-weight: bold;
     color: #00ff87;
-    background: rgba(0, 255, 135, 0.05);
-    border: 1px solid rgba(0, 255, 135, 0.2);
+    background: rgba(0, 255, 135, 0.1);
+    border: 1px solid rgba(0, 255, 135, 0.3);
     padding: 8px 24px;
-    border-radius: 20px;
-    box-shadow: 0 0 15px rgba(0, 255, 135, 0.1);
+    border-radius: 25px;
+    box-shadow: 0 0 20px rgba(0, 255, 135, 0.15);
     letter-spacing: 1px;
+    backdrop-filter: blur(4px);
   }
   
   #score-container span {
     color: #ffffff;
     font-family: monospace;
-    margin-left: 5px;
+    margin-left: 8px;
+    font-size: 1.3rem;
   }
 
+  /* キャンバスを画面の中央に配置 */
   .canvas-wrapper {
-    position: relative;
-    display: inline-block;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     border: 2px solid rgba(95, 117, 148, 0.3);
     border-radius: 12px;
-    padding: 6px;
+    padding: 4px;
     background: rgba(15, 15, 25, 0.8);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.8);
+    box-sizing: border-box;
   }
 
   canvas {
@@ -89,15 +69,9 @@
     outline: none;
     touch-action: none;
   }
+  </style></head><body>
 
-  
-  </style>
-</head>
-<body>
-  
-  <h1>Hexagon Snake Game</h1>
-  <div class="subtitle">Cybernetic Honey Hunt</div>
-
+  <!-- UIはスコアのみに -->
   <div class="top-ui-container">
     <div id="score-container">
       SCORE:<span id="score">0</span>
@@ -108,24 +82,21 @@
     <canvas id="canvas"></canvas>
   </div>
 
-    <script src="https://cdn.discordapp.com/embedded-apps/sdk/embedded.js"></script>
+  <script src="https://cdn.discordapp.com/embedded-apps/sdk/embedded.js"></script>
   <script>
-
-      if (window.DiscordSDK) {
-  // Discordアクティビティとして動いている
-  DiscordSDK.ready.then(async () => {
-    const { user } = await DiscordSDK.commands.getUser();
-    console.log("Discord user:", user.username);
-  });
-} else {
-   // -------------------------
+  if (window.DiscordSDK) {
+    DiscordSDK.ready.then(async () => {
+      const { user } = await DiscordSDK.commands.getUser();
+      console.log("Discord user:", user.username);
+    });
+  } else {
+    // -------------------------
     // Config
     // -------------------------
     const BOARD_RADIUS = 6;
     const ROT_DEG = 30;
     const STEP_MS_DEFAULT = 180;
     const MIN_HEX_SIZE = 6;
-    const CANVAS_MARGIN = 120;
 
     // -------------------------
     // Globals
@@ -142,7 +113,6 @@
     const COS_A = Math.cos(ROT_RAD);
     const SIN_A = Math.sin(ROT_RAD);
 
-    // ★座標・アニメーション管理
     let snake = [];
     let prev_snake = []; 
     let visual_snake = [];
@@ -156,13 +126,11 @@
     let STEP_MS = STEP_MS_DEFAULT;
     let score = 0;
 
-    // ★衝突・爆発エフェクト管理
     let crashing = false;
     let crash_effect_triggered = false;
     let crash_particles = [];
     let crash_time = 0;
     
-    // ★猶予期間（めり込み）管理
     let in_fatal_grace = false;
     let pre_fatal_snake = [];
 
@@ -209,17 +177,23 @@
     }
 
     function resize_canvas() {
-      let w = Math.min(window.innerWidth - CANVAS_MARGIN, 900);
-      if (w < 200) w = window.innerWidth - 40;
-      canvas.width = w;
-      canvas.height = w;
+      // 画面の幅と高さのうち、短い方を基準にする (余白を少し取る)
+      const margin = 40; 
+      let size = Math.min(window.innerWidth, window.innerHeight) - margin;
+      if (size < 250) size = 250;
+
+      // キャンバスを正方形にする
+      canvas.width = size;
+      canvas.height = size;
       CENTER_X = canvas.width / 2;
       CENTER_Y = canvas.height / 2;
-      const max_cols = (2 * BOARD_RADIUS + 1);
-      HEX_SIZE = Math.min(
-        (canvas.width - CANVAS_MARGIN*2) / (max_cols * Math.sqrt(3)),
-        (canvas.height - CANVAS_MARGIN*2) / (max_cols * 1.5)
-      );
+      
+      // 盤面がキャンバス内に完全に収まるようにHEX_SIZEを逆算
+      const board_radius_units = Math.sqrt(3) * BOARD_RADIUS + 1; // 盤面の半径（ヘクス単位）
+      const hex_margin = 15; // 盤面とキャンバス枠の間の余白
+      
+      HEX_SIZE = (size - hex_margin * 2) / (board_radius_units * 2);
+      
       if (HEX_SIZE < MIN_HEX_SIZE) HEX_SIZE = MIN_HEX_SIZE;
     }
 
@@ -498,7 +472,6 @@
       let progress = (now - last_step_time) / STEP_MS;
       if (progress > 1.0) progress = 1.0;
 
-      // ★猶予時間内に回避されず、めり込み(progress=0.4)が完了したら爆発へ移行
       if (in_fatal_grace && progress >= 0.4 && running) {
           in_fatal_grace = false;
           running = false;
@@ -530,7 +503,7 @@
               }
           } else if (now - crash_time > 600) {
               if (game_over && overlay_text === null) {
-                  set_overlay(`ゲームオーバー\n最終スコア: ${score}\n画面タップで始めから`, true);
+                  set_overlay(`ゲームオーバー\n最終スコア: ${score}\nEnterキーでリスタート`, true);
               }
           }
       }
@@ -579,25 +552,25 @@
         const lines = overlay_text.split("\n");
   
         if (lines[0]) {
-            ctx.font = overlay_big ? "bold 44px sans-serif" : "bold 38px sans-serif";
+            ctx.font = overlay_big ? "bold 32px sans-serif" : "bold 28px sans-serif";
             ctx.shadowBlur = 15;
             ctx.shadowColor = "#ffd86b";
             ctx.fillStyle = "#ffd86b"; 
-            ctx.fillText(lines[0], CENTER_X, CENTER_Y - 30);
+            ctx.fillText(lines[0], CENTER_X, CENTER_Y - 20);
         }
         ctx.shadowBlur = 0;
         if (lines[1] && lines.length > 2) {
-            ctx.font = "20px sans-serif";
+            ctx.font = "16px sans-serif";
             ctx.fillStyle = "#cccccc";
             ctx.fillText(lines[1], CENTER_X, CENTER_Y + 15);
         }
         const actionText = lines[lines.length - 1];
         if (actionText) {
-            const btnY = CENTER_X + 75; 
-            ctx.font = "bold 16px sans-serif";
+            const btnY = CENTER_Y + 60;
+            ctx.font = "bold 14px sans-serif";
             const textWidth = ctx.measureText(actionText).width;
-            const padX = 24;
-            const padY = 12;
+            const padX = 20;
+            const padY = 10;
             ctx.strokeStyle = "rgba(0, 255, 135, 0.6)"; 
             ctx.lineWidth = 2;
             ctx.strokeRect(CENTER_X - textWidth / 2 - padX, btnY - padY, textWidth + padX * 2, padY * 2);
@@ -628,18 +601,16 @@
       
       const is_fatal = !in_board(new_head) || inSnake(new_head);
 
-      // ★ぶつかるセルへ向かってめり込んでいく処理を開始
       if (is_fatal) {
           in_fatal_grace = true;
           pre_fatal_snake = snake.map(c => [...c]);
           
           prev_snake = snake.map(c => [...c]);
-          snake.unshift(new_head); // 壁などのセルを一旦頭として追加する（しっぽは減らさない）
+          snake.unshift(new_head);
           
           last_step_time = performance.now();
-          STEP_MS = 300; // 0.3秒かけて滑らかにめり込む
+          STEP_MS = 300; 
           
-          // めり込み中は自動で次のステップに進まないようにタイマーを停止
           if (interval_id !== null) {
               clearInterval(interval_id);
               interval_id = null;
@@ -651,7 +622,7 @@
       snake.unshift(new_head);
       
       last_step_time = performance.now();
-      STEP_MS = STEP_MS_DEFAULT; // 通常速度
+      STEP_MS = STEP_MS_DEFAULT; 
 
       if (honey !== null && eq(new_head, honey)) {
         score_increment();
@@ -687,7 +658,6 @@
       running = true;
       set_overlay(null);
       
-      // 一時停止から復帰時はアニメーション時間をリセットしてあげる
       last_step_time = performance.now(); 
       if (interval_id === null && !in_fatal_grace) {
         interval_id = setInterval(step, STEP_MS);
@@ -702,7 +672,7 @@
         interval_id = null;
       }
       if (!isGameOver) {
-        set_overlay("一時停止\n画面タップで再開");
+        set_overlay("一時停止\nEnterキーで再開");
       }
     }
 
@@ -721,7 +691,7 @@
       place_initial_snake();
       spawn_one_random_honey_not_on_snake();
       
-      set_overlay("スタート！\n画面タップで開始");
+      set_overlay("Enterキーでリスタート");
       if (interval_id !== null) {
         clearInterval(interval_id);
         interval_id = null;
@@ -816,12 +786,11 @@
       if (!opposite(new_dir, current_dir) && !eq(new_dir, current_dir)) {
         current_dir = new_dir;
         
-        // ★めり込み（猶予期間）中にキーが押されたら、めり込んだ位置から新しいマスへ急旋回する！
         if (in_fatal_grace) {
             in_fatal_grace = false;
-            snake = pre_fatal_snake.map(c => [...c]); // ヘビの論理位置をぶつかる直前に戻す
+            snake = pre_fatal_snake.map(c => [...c]); 
             while (visual_snake.length > snake.length) {
-                visual_snake.pop(); // 描画用ヘビのしっぽの数を合わせる
+                visual_snake.pop(); 
             }
         }
         step(); 
@@ -829,21 +798,23 @@
       }
     }
 
-    // -------------------------
-    // Initialization
-    // -------------------------
     function init() {
       DIR_MAPPING = compute_dir_mapping(); 
       resize_canvas();
       place_initial_snake(); 
       spawn_one_random_honey_not_on_snake(); 
       
-      set_overlay("スタート！\n画面タップで開始");
+      set_overlay("スタート\nEnterキーでスタート");
       
       requestAnimationFrame(render_loop);
     }
 
-    window.addEventListener("resize", resize_canvas);
+    window.addEventListener("resize", () => {
+      resize_canvas();
+      if(window.SwipeControllerInstance) {
+        window.SwipeControllerInstance.setupCanvas();
+      }
+    });
     document.addEventListener("keydown", global_key_handler);
     
     canvas.addEventListener("mousedown", handle_tap_start);
@@ -853,9 +824,200 @@
     canvas.addEventListener("click", () => canvas.focus());
 
     init(); 
-}
+  }
 
-  </script>
-  <script src="swipe.js"></script>
-</body>
-</html>
+  // swipe.js 
+  class SwipeController {
+    constructor(targetCanvas) {
+      this.target = targetCanvas;
+      this.canvas = document.createElement('canvas');
+      this.ctx = this.canvas.getContext('2d');
+      this.target.parentNode.insertBefore(this.canvas, this.target.nextSibling);
+      
+      this.isSwiping = false;
+      this.startX = 0; this.startY = 0;
+      this.currentX = 0; this.currentY = 0;
+      this.lastX = 0; this.lastY = 0;
+      this.particles = [];
+      
+      this.setupCanvas();
+      this.bindEvents();
+      this.animate();
+      window.SwipeControllerInstance = this;
+    }
+
+    setupCanvas() {
+      this.canvas.width = this.target.width;
+      this.canvas.height = this.target.height;
+      this.canvas.style.position = 'absolute';
+      this.canvas.style.left = '0px';
+      this.canvas.style.top = '0px';
+      this.canvas.style.width = '100%';
+      this.canvas.style.height = '100%';
+      this.canvas.style.pointerEvents = 'none'; 
+      this.canvas.style.background = 'transparent'; 
+      this.canvas.style.zIndex = '100';
+    }
+
+    getPos(e) {
+      const rect = this.canvas.getBoundingClientRect();
+      const scaleX = this.canvas.width / rect.width;
+      const scaleY = this.canvas.height / rect.height;
+      
+      if (e.touches && e.touches.length > 0) {
+        return {
+          x: (e.touches[0].clientX - rect.left) * scaleX,
+          y: (e.touches[0].clientY - rect.top) * scaleY
+        };
+      }
+      return {
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY
+      };
+    }
+
+    bindEvents() {
+      const start = (e) => {
+        if (e.cancelable) e.preventDefault();
+        this.isSwiping = true;
+        const pos = this.getPos(e);
+        this.startX = this.lastX = this.currentX = pos.x;
+        this.startY = this.lastY = this.currentY = pos.y;
+        this.particles = [];
+        this.spawnRipple(this.startX, this.startY);
+      };
+
+      const move = (e) => {
+        if (!this.isSwiping) return;
+        if (e.cancelable) e.preventDefault();
+        
+        const pos = this.getPos(e);
+        this.currentX = pos.x;
+        this.currentY = pos.y;
+        
+        const dxParticle = this.currentX - this.lastX;
+        const dyParticle = this.currentY - this.lastY;
+        
+        if (Math.abs(dxParticle) > 1 || Math.abs(dyParticle) > 1) {
+          this.particles.push({
+            x: this.currentX,
+            y: this.currentY,
+            vx: -dxParticle * 0.2 + (Math.random() - 0.5) * 4,
+            vy: -dyParticle * 0.2 + (Math.random() - 0.5) * 4,
+            life: 1.0,
+            size: Math.random() * 6 + 3
+          });
+        }
+
+        const dxInput = this.currentX - this.startX;
+        const dyInput = this.currentY - this.startY;
+        const dist = Math.sqrt(dxInput * dxInput + dyInput * dyInput);
+        
+        if (dist > 30) {
+          this.triggerDirection(dxInput, dyInput);
+          this.spawnRipple(this.currentX, this.currentY, "rgba(142, 240, 184, 0.6)");
+          this.startX = this.currentX;
+          this.startY = this.currentY;
+        }
+
+        this.lastX = this.currentX;
+        this.lastY = this.currentY;
+      };
+
+      const end = (e) => {
+        this.isSwiping = false;
+      };
+
+      this.target.addEventListener('touchstart', start, { passive: false });
+      this.target.addEventListener('touchmove', move, { passive: false });
+      this.target.addEventListener('touchend', end);
+      
+      this.target.addEventListener('mousedown', start);
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', end);
+    }
+
+    triggerDirection(dx, dy) {
+      const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+      const targets = { 'w': -90, 'e': -30, 'd': 30, 's': 90, 'a': 150, 'q': -150 };
+      
+      let bestKey = null;
+      let minDiff = 360;
+      
+      for (let key in targets) {
+        let want_ang = targets[key];
+        let diff = Math.abs((angleDeg - want_ang + 180) % 360 - 180);
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestKey = key;
+        }
+      }
+      
+      if (bestKey) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: bestKey }));
+      }
+    }
+
+    spawnRipple(x, y, color = "rgba(255, 255, 255, 0.5)") {
+      this.particles.push({
+        x: x, y: y, vx: 0, vy: 0, life: 1.0, size: 5, isRipple: true, color: color
+      });
+    }
+
+    animate() {
+      requestAnimationFrame(() => this.animate());
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      
+      for (let i = this.particles.length - 1; i >= 0; i--) {
+        let p = this.particles[i];
+        p.life -= 0.04;
+        if (p.life <= 0) {
+          this.particles.splice(i, 1);
+          continue;
+        }
+        
+        if (p.isRipple) {
+          this.ctx.beginPath();
+          this.ctx.strokeStyle = p.color;
+          this.ctx.lineWidth = 4 * p.life;
+          this.ctx.arc(p.x, p.y, p.size + (1 - p.life) * 40, 0, Math.PI * 2);
+          this.ctx.stroke();
+        } else {
+          p.x += p.vx;
+          p.y += p.vy;
+          this.ctx.beginPath();
+          this.ctx.fillStyle = `rgba(255, 255, 255, ${p.life * 0.8})`;
+          this.ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+          this.ctx.fill();
+        }
+      }
+      
+      if (this.isSwiping) {
+        this.ctx.beginPath();
+        this.ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+        this.ctx.lineWidth = 3;
+        this.ctx.arc(this.startX, this.startY, 20, 0, Math.PI * 2);
+        this.ctx.stroke();
+        
+        this.ctx.beginPath();
+        this.ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+        this.ctx.arc(this.currentX, this.currentY, 14, 0, Math.PI * 2);
+        this.ctx.fill();
+        
+        this.ctx.beginPath();
+        this.ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+        this.ctx.lineWidth = 4;
+        this.ctx.moveTo(this.startX, this.startY);
+        this.ctx.lineTo(this.currentX, this.currentY);
+        this.ctx.stroke();
+      }
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    const canvas = document.getElementById('canvas');
+    if (canvas) {
+      new SwipeController(canvas);
+    }
+  });
+  </script></body></html>
