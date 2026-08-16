@@ -1,0 +1,1156 @@
+
+<!DOCTYPE html><html lang="ja"><head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+  <title>Hex Snake</title>
+
+  <style>
+  body {
+    background-color: #0a0a12;
+    background-image: 
+      linear-gradient(rgba(18, 18, 32, 0.5) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(18, 18, 32, 0.5) 1px, transparent 1px);
+    background-size: 20px 20px;
+    color: #e2e8f0;
+    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  .top-ui-container {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 100;
+  }
+
+  #score-container {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #00ff87;
+    background: rgba(0, 255, 135, 0.1);
+    border: 1px solid rgba(0, 255, 135, 0.3);
+    padding: 8px 24px;
+    border-radius: 25px;
+    box-shadow: 0 0 20px rgba(0, 255, 135, 0.15);
+    letter-spacing: 1px;
+    backdrop-filter: blur(4px);
+  }
+  
+  #score-container span {
+    color: #ffffff;
+    font-family: monospace;
+    margin-left: 8px;
+    font-size: 1.3rem;
+  }
+
+  .canvas-wrapper {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    border: 2px solid rgba(95, 117, 148, 0.3);
+    border-radius: 12px;
+    padding: 4px;
+    background: rgba(15, 15, 25, 0.8);
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.8);
+    box-sizing: border-box;
+  }
+
+  canvas {
+    background: #0f0f16;
+    display: block;
+    border-radius: 8px;
+    outline: none;
+    touch-action: none;
+  }
+  </style></head><body>
+
+  <div class="top-ui-container">
+    <div id="score-container">
+      SCORE:<span id="score">0</span>
+    </div>
+  </div>
+<label>
+  <input type="checkbox" id="botToggle" onchange="toggleBot(this.checked)"> Botを有効
+</label>
+  <div class="canvas-wrapper">
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <script>
+    // -------------------------
+    // Config
+    // -------------------------
+    const BOARD_RADIUS = 6;
+    const ROT_DEG = 30;
+    const STEP_MS_DEFAULT = 1;
+    const MIN_HEX_SIZE = 6;
+
+    // -------------------------
+    // Globals
+    // -------------------------
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d"); 
+    
+    // 背景キャッシュ用のオフスクリーンキャンバス
+    const bgCanvas = document.createElement("canvas");
+    const bgCtx = bgCanvas.getContext("2d");
+    const score_span = document.getElementById("score");
+
+    let HEX_SIZE = 24;
+    let CENTER_X = 0;
+    let CENTER_Y = 0;
+
+    const ROT_RAD = -ROT_DEG * Math.PI / 180;
+    const COS_A = Math.cos(ROT_RAD);
+    const SIN_A = Math.sin(ROT_RAD);
+
+    let snake = [];
+    let prev_snake = []; 
+    let visual_snake = [];
+    let last_step_time = 0; 
+
+    let current_dir = [0, -1];
+    let honey = null; 
+    let running = false;
+    let game_over = false;
+    let interval_id = null;
+    let STEP_MS = STEP_MS_DEFAULT;
+    let score = 0;
+
+    let crashing = false;
+    let crash_effect_triggered = false;
+    let crash_particles = [];
+    let crash_time = 0;
+    
+    let in_fatal_grace = false;
+    let pre_fatal_snake = [];
+
+    const NEIGHBORS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+    let DIR_MAPPING = {}; 
+
+    let overlay_text = null;
+    let overlay_big = false;
+
+    // -------------------------
+    // Geometry / helpers
+    // -------------------------
+    function eq(a, b) {
+      if (!a || !b) return false;
+      return a[0] === b[0] && a[1] === b[1];
+    }
+
+    function inSnake(cell) {
+      for(let i=0; i<snake.length; i++) {
+        if(snake[i][0] === cell[0] && snake[i][1] === cell[1]) return true;
+      }
+      return false;
+    }
+
+    function rotate_point(x, y) {
+      const tx = x - CENTER_X;
+      const ty = y - CENTER_Y;
+      const rx = tx * COS_A - ty * SIN_A;
+      const ry = tx * SIN_A + ty * COS_A;
+      return [rx + CENTER_X, ry + CENTER_Y];
+    }
+
+    function axial_to_pixel_raw(q, r) {
+      const x = HEX_SIZE * (1.7320508 * q + 0.8660254 * r);
+      const y = HEX_SIZE * (1.5 * r);
+      return [x + CENTER_X, y + CENTER_Y];
+    }
+
+    function axial_to_pixel(q, r) {
+      const [x, y] = axial_to_pixel_raw(q, r);
+      return rotate_point(x, y);
+    }
+
+    function in_board(cell) {
+      const [q, r] = cell;
+      return Math.abs(q) <= BOARD_RADIUS && Math.abs(r) <= BOARD_RADIUS && Math.abs(q + r) <= BOARD_RADIUS;
+    }
+
+    function resize_canvas() {
+      const margin = 40; 
+      let size = Math.min(window.innerWidth, window.innerHeight) - margin;
+      if (size < 250) size = 250;
+
+      canvas.width = size;
+      canvas.height = size;
+      bgCanvas.width = size;
+      bgCanvas.height = size;
+      
+      CENTER_X = size / 2;
+      CENTER_Y = size / 2;
+      
+      const board_radius_units = 1.732 * BOARD_RADIUS + 1; 
+      const hex_margin = 15; 
+      
+      HEX_SIZE = (size - hex_margin * 2) / (board_radius_units * 2);
+      if (HEX_SIZE < MIN_HEX_SIZE) HEX_SIZE = MIN_HEX_SIZE;
+
+      cache_board(); // 背景を再生成してキャッシュ
+    }
+
+    // -------------------------
+    // Drawing (Cache based)
+    // -------------------------
+    function draw_hex_vertices_raw(q, r) {
+      const [cx_raw, cy_raw] = axial_to_pixel_raw(q, r);
+      let verts = [];
+      for (let i = 0; i < 6; i++) {
+        const angle = (60 * i - 30) * Math.PI / 180;
+        const px = cx_raw + HEX_SIZE * Math.cos(angle);
+        const py = cy_raw + HEX_SIZE * Math.sin(angle);
+        verts.push(rotate_point(px, py));
+      }
+      return verts;
+    }
+
+    function draw_hex_at(targetCtx, q, r, fill_color, stroke_color) {
+      const verts = draw_hex_vertices_raw(q, r);
+      targetCtx.beginPath();
+      verts.forEach((v, i) => {
+        if (i === 0) targetCtx.moveTo(v[0], v[1]);
+        else targetCtx.lineTo(v[0], v[1]);
+      });
+      targetCtx.closePath();
+      targetCtx.fillStyle = fill_color;
+      targetCtx.fill();
+      targetCtx.strokeStyle = stroke_color;
+      targetCtx.lineWidth = 1.2;
+      targetCtx.stroke();
+    }
+
+    function cache_board() {
+      bgCtx.fillStyle = "#0f0f16";
+      bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+      for (let q = -BOARD_RADIUS; q <= BOARD_RADIUS; q++) {
+        for (let r = -BOARD_RADIUS; r <= BOARD_RADIUS; r++) {
+          if (Math.abs(q + r) <= BOARD_RADIUS) {
+            draw_hex_at(bgCtx, q, r, "#12121a", "#2a2a38");
+          }
+        }
+      }
+    }
+
+    // -------------------------
+    // Honey & Effects
+    // -------------------------
+    let honey_hex_effect = null;
+
+    function trigger_honey_spawn_effect(cx, cy) {
+      honey_hex_effect = { cx: cx, cy: cy, scale: 1.0, alpha: 1.0 };
+    }
+
+    function spawn_one_random_honey_not_on_snake() {
+      let free = [];
+      for (let q = -BOARD_RADIUS; q <= BOARD_RADIUS; q++) {
+        for (let r = -BOARD_RADIUS; r <= BOARD_RADIUS; r++) {
+          const cell = [q, r];
+          if (in_board(cell) && !inSnake(cell)) {
+            free.push(cell);
+          }
+        }
+      }
+      if (free.length === 0) {
+        honey = null;
+        return null;
+      }
+      honey = free[Math.floor(Math.random() * free.length)];
+      
+      const [cx, cy] = axial_to_pixel(honey[0], honey[1]);
+      trigger_honey_spawn_effect(cx, cy);
+
+      return honey;
+    }
+
+    function draw_honey(timestamp) {
+        if (honey === null) return;
+        const [q, r] = honey;
+        const [cx, cy] = axial_to_pixel(q, r);
+        const verts = draw_hex_vertices_raw(q, r);
+
+        const pulse = 0.85 + 0.15 * Math.sin(timestamp / 200);
+        ctx.save();
+        ctx.beginPath();
+        verts.forEach((v, idx) => {
+            const sx = cx + (v[0] - cx) * pulse;
+            const sy = cy + (v[1] - cy) * pulse;
+            if (idx === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+        });
+        ctx.closePath();
+        ctx.fillStyle = "#ff7700"; 
+        ctx.fill();
+        ctx.strokeStyle = "#ffaa00"; 
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        const inner_pulse = 0.4 + 0.1 * Math.sin(timestamp / 200 + 1);
+        ctx.beginPath();
+        verts.forEach((v, idx) => {
+            const sx = cx + (v[0] - cx) * inner_pulse;
+            const sy = cy + (v[1] - cy) * inner_pulse;
+            if (idx === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+        });
+        ctx.closePath();
+        ctx.fillStyle = "#ffdd33";
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // -------------------------
+    // Snake
+    // -------------------------
+    function place_initial_snake() {
+      const up_dir = DIR_MAPPING["w"];
+      current_dir = up_dir;
+      
+      const head = [0, 0]; 
+      const mid = [0 - up_dir[0], 0 - up_dir[1]];
+      const tail = [0 - 2 * up_dir[0], 0 - 2 * up_dir[1]];
+      
+      snake = [head, mid, tail];
+      prev_snake = snake.map(cell => [...cell]); 
+      last_step_time = performance.now();
+
+      visual_snake = snake.map(cell => {
+        const [px, py] = axial_to_pixel(cell[0], cell[1]);
+        return { x: px, y: py };
+      });
+    }
+
+    function draw_snake() {
+      const len = visual_snake.length;
+      if (len === 0) return;
+
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      for (let i = len - 1; i >= 0; i--) {
+        const avg_ratio = (len - i) / len;
+
+        ctx.lineWidth = HEX_SIZE * (0.5 + avg_ratio * 0.6);
+        const rColor = Math.floor(20 + 38 * avg_ratio);
+        const gColor = Math.floor(100 + 155 * avg_ratio);
+        const bColor = Math.floor(60 + 46 * avg_ratio);
+        
+        ctx.strokeStyle = `rgb(${rColor}, ${gColor}, ${bColor})`;
+
+        ctx.beginPath();
+        if (i === len - 1) {
+            if (len > 1) {
+                const p_curr = visual_snake[i];
+                const p_prev = visual_snake[i-1];
+                const mid = { x: (p_curr.x + p_prev.x)/2, y: (p_curr.y + p_prev.y)/2 };
+                ctx.moveTo(p_curr.x, p_curr.y);
+                ctx.lineTo(mid.x, mid.y);
+            } else {
+                ctx.moveTo(visual_snake[0].x, visual_snake[0].y);
+                ctx.lineTo(visual_snake[0].x, visual_snake[0].y);
+            }
+        } else if (i === 0) {
+            const p_curr = visual_snake[0];
+            const p_next = visual_snake[1];
+            const mid = { x: (p_curr.x + p_next.x)/2, y: (p_curr.y + p_next.y)/2 };
+            ctx.moveTo(mid.x, mid.y);
+            ctx.lineTo(p_curr.x, p_curr.y);
+        } else {
+            const p_curr = visual_snake[i];
+            const p_next = visual_snake[i+1];
+            const p_prev = visual_snake[i-1];
+            const mid_next = { x: (p_curr.x + p_next.x)/2, y: (p_curr.y + p_next.y)/2 };
+            const mid_prev = { x: (p_curr.x + p_prev.x)/2, y: (p_curr.y + p_prev.y)/2 };
+            ctx.moveTo(mid_next.x, mid_next.y);
+            ctx.quadraticCurveTo(p_curr.x, p_curr.y, mid_prev.x, mid_prev.y);
+        }
+        ctx.stroke();
+      }
+
+      if (len > 1) {
+        const head = visual_snake[0];
+        const neck = visual_snake[1];
+        const angle = Math.atan2(head.y - neck.y, head.x - neck.x);
+        draw_head_eyes_at(head.x, head.y, angle);
+      }
+      ctx.restore();
+    }
+
+    function draw_head_eyes_at(hx, hy, angle) {
+      const forward = [Math.cos(angle), Math.sin(angle)];
+      const perp = [-forward[1], forward[0]];
+
+      const eye_dist_forward = HEX_SIZE * 0.25;
+      const eye_dist_side = HEX_SIZE * 0.35;
+      const eye_radius = Math.max(2, Math.floor(HEX_SIZE * 0.18));
+
+      const lx = hx + forward[0]*eye_dist_forward + perp[0]*eye_dist_side;
+      const ly = hy + forward[1]*eye_dist_forward + perp[1]*eye_dist_side;
+      const rx = hx + forward[0]*eye_dist_forward - perp[0]*eye_dist_side;
+      const ry = hy + forward[1]*eye_dist_forward - perp[1]*eye_dist_side;
+
+      ctx.save();
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(lx, ly, eye_radius + 1, 0, 2*Math.PI);
+      ctx.arc(rx, ry, eye_radius + 1, 0, 2*Math.PI);
+      ctx.fill();
+
+      ctx.fillStyle = "#000000";
+      ctx.beginPath();
+      ctx.arc(lx, ly, eye_radius * 0.5, 0, 2*Math.PI);
+      ctx.arc(rx, ry, eye_radius * 0.5, 0, 2*Math.PI);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // -------------------------
+    // Render Loop & Overlays
+    // -------------------------
+    function set_overlay(text, big=false) {
+      overlay_text = text;
+      overlay_big = big;
+    }
+
+    function render_loop(timestamp) {
+      // 画面を一度クリアしてから背景を描画
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bgCanvas, 0, 0);
+      
+      draw_honey(timestamp);
+      
+      if (honey_hex_effect) {
+        ctx.save();
+        ctx.globalAlpha = honey_hex_effect.alpha;
+        ctx.strokeStyle = "#ffcc00"; 
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const angle = (Math.PI / 3) * i;
+          const px = honey_hex_effect.cx + Math.cos(angle) * (HEX_SIZE * honey_hex_effect.scale);
+          const py = honey_hex_effect.cy + Math.sin(angle) * (HEX_SIZE * honey_hex_effect.scale);
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+
+        honey_hex_effect.scale += 0.15; 
+        honey_hex_effect.alpha -= 0.05; 
+        if (honey_hex_effect.alpha <= 0) honey_hex_effect = null;
+      }
+      
+      while (visual_snake.length < snake.length) {
+        const last = visual_snake[visual_snake.length - 1];
+        visual_snake.push({ x: last.x, y: last.y });
+      }
+
+      const now = performance.now();
+      if (last_step_time === 0) last_step_time = now;
+      let progress = (now - last_step_time) / STEP_MS;
+      if (progress > 1.0) progress = 1.0;
+
+      if (in_fatal_grace && progress >= 0.4 && running) {
+          in_fatal_grace = false;
+          running = false;
+          game_over = true;
+          crashing = true;
+          crash_effect_triggered = false;
+          if (interval_id !== null) {
+              clearInterval(interval_id);
+              interval_id = null;
+          }
+      }
+
+      if (crashing && progress >= 1.0) {
+          if (!crash_effect_triggered) {
+              crash_effect_triggered = true;
+              crash_time = now;
+              for(let i=0; i<30; i++){
+                  const angle = Math.random() * Math.PI * 2;
+                  const speed = 1 + Math.random() * 6;
+                  crash_particles.push({
+                      x: visual_snake[0].x,
+                      y: visual_snake[0].y,
+                      vx: Math.cos(angle) * speed,
+                      vy: Math.sin(angle) * speed,
+                      size: 2 + Math.random() * 4,
+                      alpha: 1,
+                      color: Math.random() > 0.5 ? "#ff0055" : "#ffcc00"
+                  });
+              }
+          } else if (now - crash_time > 600) {
+              if (game_over && overlay_text === null) {
+                  set_overlay(`ゲームオーバー\n最終スコア: ${score}\nEnterキーでリスタート`, true);
+              }
+          }
+      }
+
+      const LERP_FACTOR = 0.5; 
+      for (let i = 0; i < snake.length; i++) {
+        const prev_cell = prev_snake[i] || snake[i];
+        const [px, py] = axial_to_pixel(prev_cell[0], prev_cell[1]); 
+        const [cx, cy] = axial_to_pixel(snake[i][0], snake[i][1]); 
+
+        const target_x = px + (cx - px) * progress;
+        const target_y = py + (cy - py) * progress;
+
+        visual_snake[i].x += (target_x - visual_snake[i].x) * LERP_FACTOR;
+        visual_snake[i].y += (target_y - visual_snake[i].y) * LERP_FACTOR;
+      }
+
+      draw_snake();
+
+      if (crash_particles.length > 0) {
+        ctx.save();
+        let alive = false;
+        for (let i=0; i<crash_particles.length; i++) {
+            let p = crash_particles[i];
+            p.alpha -= 0.04;
+            if (p.alpha > 0) {
+                alive = true;
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vx *= 0.92;
+                p.vy *= 0.92;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = p.alpha;
+                ctx.fill();
+            }
+        }
+        ctx.restore();
+        if (!alive) crash_particles = [];
+      }
+
+      if (overlay_text) {
+        ctx.save();
+        ctx.fillStyle = "rgba(10, 10, 15, 0.75)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const lines = overlay_text.split("\n");
+  
+        if (lines[0]) {
+            ctx.font = overlay_big ? "bold 32px sans-serif" : "bold 28px sans-serif";
+            ctx.fillStyle = "#ffd86b"; 
+            ctx.fillText(lines[0], CENTER_X, CENTER_Y - 20);
+        }
+        if (lines[1] && lines.length > 2) {
+            ctx.font = "16px sans-serif";
+            ctx.fillStyle = "#cccccc";
+            ctx.fillText(lines[1], CENTER_X, CENTER_Y + 15);
+        }
+        const actionText = lines[lines.length - 1];
+        if (actionText) {
+            const btnY = CENTER_Y + 60;
+            ctx.font = "bold 14px sans-serif";
+            const textWidth = ctx.measureText(actionText).width;
+            const padX = 20;
+            const padY = 10;
+            ctx.strokeStyle = "rgba(0, 255, 135, 0.6)"; 
+            ctx.lineWidth = 2;
+            ctx.strokeRect(CENTER_X - textWidth / 2 - padX, btnY - padY, textWidth + padX * 2, padY * 2);
+            ctx.fillStyle = "rgba(0, 255, 135, 0.2)";
+            ctx.fillRect(CENTER_X - textWidth / 2 - padX, btnY - padY, textWidth + padX * 2, padY * 2);
+            ctx.fillStyle = "#00ff87";
+            ctx.fillText(actionText, CENTER_X, btnY);
+        }
+        ctx.restore();
+      }
+
+      requestAnimationFrame(render_loop);
+    }
+
+    // -------------------------
+    // Game logic 
+    // -------------------------
+    function opposite(d1, d2) {
+      return d1[0] === -d2[0] && d1[1] === -d2[1];
+    }
+
+    function step() {
+      if (!running && !crashing) return;
+        if (botEnabled) {
+    current_dir = getBotNextDirection();
+  }
+
+      const [hq, hr] = snake[0];
+      const [dq, dr] = current_dir;
+      const new_head = [hq + dq, hr + dr];
+      
+      const is_fatal = !in_board(new_head) || inSnake(new_head);
+
+      if (is_fatal) {
+          in_fatal_grace = true;
+          pre_fatal_snake = snake.map(c => [...c]);
+          
+          prev_snake = snake.map(c => [...c]);
+          snake.unshift(new_head);
+          
+          last_step_time = performance.now();
+          STEP_MS = 300; 
+          
+          if (interval_id !== null) {
+              clearInterval(interval_id);
+              interval_id = null;
+          }
+          return; 
+      }
+      
+      prev_snake = snake.map(cell => [...cell]);
+      snake.unshift(new_head);
+      
+      last_step_time = performance.now();
+      STEP_MS = STEP_MS_DEFAULT; 
+
+      if (honey !== null && eq(new_head, honey)) {
+        score_increment();
+        spawn_one_random_honey_not_on_snake();
+      } else {
+        snake.pop();
+      }
+    }
+
+    function score_increment() {
+      score += 1;
+      score_span.innerText = score.toString();
+    }
+
+    function reset_interval() {
+      if (interval_id !== null) {
+        clearInterval(interval_id);
+      }
+      if (!in_fatal_grace && running) {
+          interval_id = setInterval(step, STEP_MS);
+      }
+    }
+
+    // -------------------------
+    // Controls / events
+    // -------------------------
+    function start_game() {
+      if (game_over || crashing) {
+        restart_game();
+        return; 
+      }
+      if (running) return;
+      running = true;
+      set_overlay(null);
+      
+      last_step_time = performance.now(); 
+      if (interval_id === null && !in_fatal_grace) {
+        interval_id = setInterval(step, STEP_MS);
+      }
+    }
+
+    function stop_game(isGameOver=false) {
+      if (!running && !isGameOver) return;
+      running = false;
+      if (interval_id !== null) {
+        clearInterval(interval_id);
+        interval_id = null;
+      }
+      if (!isGameOver) {
+        set_overlay("一時停止\nEnterキーで再開");
+      }
+    }
+
+    function restart_game() {
+      score = 0;
+      score_span.innerText = score.toString();
+      game_over = false;
+      running = false;
+      crashing = false;
+      crash_effect_triggered = false;
+      crash_particles = [];
+      in_fatal_grace = false;
+      pre_fatal_snake = [];
+      STEP_MS = STEP_MS_DEFAULT;
+      
+      place_initial_snake();
+      spawn_one_random_honey_not_on_snake();
+      
+      set_overlay("スタート\nEnterキーで開始");
+      if (interval_id !== null) {
+        clearInterval(interval_id);
+        interval_id = null;
+      }
+    }
+
+    function handle_tap_start(e) {
+      if (game_over || crashing) {
+        restart_game();
+        start_game();
+      } else if (!running) {
+        start_game();
+      }
+    }
+
+    function compute_dir_mapping() {
+      const AXIAL_DELTAS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+      const desired_angles = {w: -90, e: -30, d: 30, s: 90, a: 150, q: -150};
+      
+      function angle_of_delta(delta) {
+        const [x0, y0] = axial_to_pixel_raw(0, 0);
+        const [x1, y1] = axial_to_pixel_raw(delta[0], delta[1]);
+        const [rx0, ry0] = rotate_point(x0, y0);
+        const [rx1, ry1] = rotate_point(x1, y1);
+        const dx = rx1 - rx0;
+        const dy = ry1 - ry0;
+        return Math.atan2(dy, dx) * 180 / Math.PI;
+      }
+      
+      const delta_angles = AXIAL_DELTAS.map(d => angle_of_delta(d));
+      let DIR = {};
+      let used = new Set();
+      
+      for (let key in desired_angles) {
+        let want_ang = desired_angles[key];
+        let best = null;
+        let best_diff = 9999;
+        for (let i = 0; i < delta_angles.length; i++) {
+          if (used.has(i)) continue;
+          let diff = (delta_angles[i] - want_ang + 180) % 360 - 180;
+          if (Math.abs(diff) < best_diff) {
+            best_diff = Math.abs(diff);
+            best = i;
+          }
+        }
+        if (best !== null) {
+          used.add(best);
+          DIR[key] = AXIAL_DELTAS[best];
+        }
+      }
+      return DIR;
+    }
+
+    function global_key_handler(evt) {
+      const key = evt.key;
+      if (key === "Enter") {
+        if (game_over || crashing) {
+          restart_game();
+          start_game();
+        } else if (!running) {
+          start_game();
+        }
+        return;
+      } else if (key === "Escape") {
+        if (running) {
+          stop_game();
+        } else if (!game_over && !crashing) {
+          start_game();
+        }
+        return;
+      }
+      
+      if (!running) return;
+      
+      const k = key.toLowerCase();
+      if (!(k in DIR_MAPPING)) return;
+      
+      const new_dir = DIR_MAPPING[k];
+      if (!opposite(new_dir, current_dir) && !eq(new_dir, current_dir)) {
+        current_dir = new_dir;
+        
+        if (in_fatal_grace) {
+            in_fatal_grace = false;
+            snake = pre_fatal_snake.map(c => [...c]); 
+            while (visual_snake.length > snake.length) {
+                visual_snake.pop(); 
+            }
+        }
+        step(); 
+        reset_interval(); 
+      }
+    }
+
+    function init() {
+      // 順番が非常に重要: キャンバスのサイズを確定させてから計算する
+      resize_canvas();
+      DIR_MAPPING = compute_dir_mapping(); 
+      place_initial_snake(); 
+      spawn_one_random_honey_not_on_snake(); 
+      
+      set_overlay("スタート！\n画面タップで開始");
+      
+      requestAnimationFrame(render_loop);
+    }
+
+    window.addEventListener("resize", () => {
+      resize_canvas();
+      if(window.SwipeControllerInstance) {
+        window.SwipeControllerInstance.setupCanvas();
+      }
+    });
+    document.addEventListener("keydown", global_key_handler);
+    
+    canvas.addEventListener("mousedown", handle_tap_start);
+    canvas.addEventListener("touchstart", handle_tap_start, { passive: true });
+    
+    canvas.tabIndex = 0;
+    canvas.addEventListener("click", () => canvas.focus());
+
+    init(); 
+
+  // swipe.js (軽量化版)
+  class SwipeController {
+    constructor(targetCanvas) {
+      this.target = targetCanvas;
+      this.canvas = document.createElement('canvas');
+      this.ctx = this.canvas.getContext('2d');
+      this.target.parentNode.insertBefore(this.canvas, this.target.nextSibling);
+      
+      this.isSwiping = false;
+      this.startX = 0; this.startY = 0;
+      this.currentX = 0; this.currentY = 0;
+      this.lastX = 0; this.lastY = 0;
+      this.particles = [];
+      
+      this.setupCanvas();
+      this.bindEvents();
+      this.animate();
+      window.SwipeControllerInstance = this;
+    }
+
+    setupCanvas() {
+      this.canvas.width = this.target.width;
+      this.canvas.height = this.target.height;
+      this.canvas.style.position = 'absolute';
+      this.canvas.style.left = '0px';
+      this.canvas.style.top = '0px';
+      this.canvas.style.width = '100%';
+      this.canvas.style.height = '100%';
+      this.canvas.style.pointerEvents = 'none'; 
+      this.canvas.style.background = 'transparent'; // これがないと真っ暗になる場合があります
+      this.canvas.style.zIndex = '100';
+    }
+
+    getPos(e) {
+      const rect = this.canvas.getBoundingClientRect();
+      const scaleX = this.canvas.width / rect.width;
+      const scaleY = this.canvas.height / rect.height;
+      
+      if (e.touches && e.touches.length > 0) {
+        return {
+          x: (e.touches[0].clientX - rect.left) * scaleX,
+          y: (e.touches[0].clientY - rect.top) * scaleY
+        };
+      }
+      return {
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY
+      };
+    }
+
+    bindEvents() {
+      const start = (e) => {
+        if (e.cancelable) e.preventDefault();
+        this.isSwiping = true;
+        const pos = this.getPos(e);
+        this.startX = this.lastX = this.currentX = pos.x;
+        this.startY = this.lastY = this.currentY = pos.y;
+        this.particles = [];
+        this.spawnRipple(this.startX, this.startY);
+      };
+
+      const move = (e) => {
+        if (!this.isSwiping) return;
+        if (e.cancelable) e.preventDefault();
+        
+        const pos = this.getPos(e);
+        this.currentX = pos.x;
+        this.currentY = pos.y;
+        
+        const dxParticle = this.currentX - this.lastX;
+        const dyParticle = this.currentY - this.lastY;
+        
+        if (Math.random() > 0.3 && (Math.abs(dxParticle) > 2 || Math.abs(dyParticle) > 2)) {
+          this.particles.push({
+            x: this.currentX,
+            y: this.currentY,
+            vx: -dxParticle * 0.15 + (Math.random() - 0.5) * 2,
+            vy: -dyParticle * 0.15 + (Math.random() - 0.5) * 2,
+            life: 1.0,
+            size: Math.random() * 4 + 2
+          });
+        }
+
+        const dxInput = this.currentX - this.startX;
+        const dyInput = this.currentY - this.startY;
+        const dist = Math.sqrt(dxInput * dxInput + dyInput * dyInput);
+        
+        if (dist > 30) {
+          this.triggerDirection(dxInput, dyInput);
+          this.spawnRipple(this.currentX, this.currentY, "rgba(142, 240, 184, 0.5)");
+          this.startX = this.currentX;
+          this.startY = this.currentY;
+        }
+
+        this.lastX = this.currentX;
+        this.lastY = this.currentY;
+      };
+
+      const end = (e) => {
+        this.isSwiping = false;
+      };
+
+      this.target.addEventListener('touchstart', start, { passive: false });
+      this.target.addEventListener('touchmove', move, { passive: false });
+      this.target.addEventListener('touchend', end);
+      
+      this.target.addEventListener('mousedown', start);
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', end);
+    }
+
+    triggerDirection(dx, dy) {
+      const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+      const targets = { 'w': -90, 'e': -30, 'd': 30, 's': 90, 'a': 150, 'q': -150 };
+      
+      let bestKey = null;
+      let minDiff = 360;
+      
+      for (let key in targets) {
+        let want_ang = targets[key];
+        let diff = Math.abs((angleDeg - want_ang + 180) % 360 - 180);
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestKey = key;
+        }
+      }
+      
+      if (bestKey) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: bestKey }));
+      }
+    }
+
+    spawnRipple(x, y, color = "rgba(255, 255, 255, 0.4)") {
+      this.particles.push({
+        x: x, y: y, vx: 0, vy: 0, life: 1.0, size: 4, isRipple: true, color: color
+      });
+    }
+
+    animate() {
+      requestAnimationFrame(() => this.animate());
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      
+      for (let i = this.particles.length - 1; i >= 0; i--) {
+        let p = this.particles[i];
+        p.life -= 0.05; 
+        if (p.life <= 0) {
+          this.particles.splice(i, 1);
+          continue;
+        }
+        
+        if (p.isRipple) {
+          this.ctx.beginPath();
+          this.ctx.strokeStyle = p.color;
+          this.ctx.lineWidth = 3 * p.life;
+          this.ctx.arc(p.x, p.y, p.size + (1 - p.life) * 30, 0, Math.PI * 2);
+          this.ctx.stroke();
+        } else {
+          p.x += p.vx;
+          p.y += p.vy;
+          this.ctx.beginPath();
+          this.ctx.fillStyle = `rgba(255, 255, 255, ${p.life * 0.6})`;
+          this.ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+          this.ctx.fill();
+        }
+      }
+      
+      if (this.isSwiping) {
+        this.ctx.beginPath();
+        this.ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+        this.ctx.arc(this.currentX, this.currentY, 12, 0, Math.PI * 2);
+        this.ctx.fill();
+        
+        this.ctx.beginPath();
+        this.ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+        this.ctx.lineWidth = 3;
+        this.ctx.moveTo(this.startX, this.startY);
+        this.ctx.lineTo(this.currentX, this.currentY);
+        this.ctx.stroke();
+      }
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    const canvas = document.getElementById('canvas');
+    if (canvas) {
+      new SwipeController(canvas);
+    }
+  });
+
+// -------------------------
+// Bot Logic (Perfect Clear AI)
+// -------------------------
+let botEnabled = false;
+
+function toggleBot(enabled) {
+  botEnabled = enabled;
+}
+
+// 全クリを目指すための高度な探索アルゴリズム
+// BFS（幅優先探索）を用いて、盤面全体の構造と生存ルートを把握します。
+function getBotNextDirection() {
+  if (snake.length === 0 || honey === null) return current_dir;
+
+  const head = snake[0];
+  const tail = snake[snake.length - 1];
+
+  // --- ヘルパー関数: BFSで目標までの最短距離を計算 ---
+  function bfs_distance(startQ, startR, targetQ, targetR) {
+    if (startQ === targetQ && startR === targetR) return 0;
+    
+    // shift()の重さを回避するためインデックスでキューを管理
+    let queue = [{q: startQ, r: startR, d: 0}];
+    let visited = new Set();
+    visited.add(startQ + "," + startR);
+
+    let headIdx = 0;
+    while (headIdx < queue.length) {
+      let curr = queue[headIdx++];
+      
+      for (let i = 0; i < NEIGHBORS.length; i++) {
+        let nq = curr.q + NEIGHBORS[i][0];
+        let nr = curr.r + NEIGHBORS[i][1];
+
+        if (nq === targetQ && nr === targetR) return curr.d + 1;
+
+        let nstr = nq + "," + nr;
+        
+        // 探索中は「次のステップで消える尻尾」は障害物から除外して計算する
+        let in_body = false;
+        for(let k = 0; k < snake.length - 1; k++) {
+            if(snake[k][0] === nq && snake[k][1] === nr) { in_body = true; break; }
+        }
+
+        if (!visited.has(nstr) && in_board([nq, nr]) && !in_body) {
+          visited.add(nstr);
+          queue.push({q: nq, r: nr, d: curr.d + 1});
+        }
+      }
+    }
+    return Infinity; // 到達不可能な場合
+  }
+
+  // --- ヘルパー関数: 到達可能な「空きマスの総数」を数える ---
+  function get_reachable_space(startQ, startR) {
+    let queue = [{q: startQ, r: startR}];
+    let visited = new Set();
+    visited.add(startQ + "," + startR);
+    let count = 0;
+
+    let headIdx = 0;
+    while (headIdx < queue.length) {
+      let curr = queue[headIdx++];
+      count++;
+      
+      for (let i = 0; i < NEIGHBORS.length; i++) {
+        let nq = curr.q + NEIGHBORS[i][0];
+        let nr = curr.r + NEIGHBORS[i][1];
+        let nstr = nq + "," + nr;
+
+        let in_body = false;
+        for(let k = 0; k < snake.length - 1; k++) {
+            if(snake[k][0] === nq && snake[k][1] === nr) { in_body = true; break; }
+        }
+
+        if (!visited.has(nstr) && in_board([nq, nr]) && !in_body) {
+          visited.add(nstr);
+          queue.push({q: nq, r: nr});
+        }
+      }
+    }
+    return count;
+  }
+
+  let validMoves = [];
+
+  // 1. 6方向すべての候補をシミュレーション
+  for (let i = 0; i < NEIGHBORS.length; i++) {
+    const dir = NEIGHBORS[i];
+    
+    // 逆走は即死なので不可
+    if (opposite(dir, current_dir)) continue;
+
+    const nQ = head[0] + dir[0];
+    const nR = head[1] + dir[1];
+
+    // 直後のステップで壁や自分の体に当たる場合は不可
+    // （※直後のステップでは尻尾はまだ退いていないため、inSnakeでフルチェック）
+    if (!in_board([nQ, nR]) || inSnake([nQ, nR])) continue;
+
+    // その方向に進んだ場合の各種データを計算
+    let dHoney = bfs_distance(nQ, nR, honey[0], honey[1]);
+    let dTail  = bfs_distance(nQ, nR, tail[0], tail[1]);
+    let space  = get_reachable_space(nQ, nR);
+
+    // 【安全の定義】: 自分の尻尾にたどり着けるルートがあるか、空間が自分の長さより十分広い
+    let isSafe = (dTail !== Infinity) || (space > snake.length + 5);
+
+    validMoves.push({
+        dir: dir,
+        dHoney: dHoney,
+        dTail: dTail,
+        space: space,
+        isSafe: isSafe
+    });
+  }
+
+  // 2. どこにも行けない場合は諦める
+  if (validMoves.length === 0) return current_dir;
+
+  // 3. 安全なルートだけを抽出
+  let safeMoves = validMoves.filter(m => m.isSafe);
+
+  if (safeMoves.length > 0) {
+      // 安全なルートの中で、エサにたどり着けるルートはあるか？
+      let honeyMoves = safeMoves.filter(m => m.dHoney !== Infinity);
+
+      if (honeyMoves.length > 0) {
+          // 【パターンA】エサに安全に行ける
+          // エサに一番近いルートを選び、同距離なら空間が広い方を選ぶ
+          honeyMoves.sort((a, b) => {
+              if (a.dHoney !== b.dHoney) return a.dHoney - b.dHoney;
+              
+              // 同距離なら「直進」を少し優先して綺麗な動きにする
+              let aIsStraight = (a.dir[0] === current_dir[0] && a.dir[1] === current_dir[1]) ? 1 : 0;
+              let bIsStraight = (b.dir[0] === current_dir[0] && b.dir[1] === current_dir[1]) ? 1 : 0;
+              if (bIsStraight !== aIsStraight) return bIsStraight - aIsStraight;
+              
+              return b.space - a.space;
+          });
+          return honeyMoves[0].dir;
+      } else {
+          // 【パターンB】安全だがエサには行けない（自分の体が壁になっている等）
+          // 尻尾を追いかけて時間を稼ぐ（尻尾まで一番「遠回り」するルートを選ぶことで生存時間を延ばす）
+          safeMoves.sort((a, b) => {
+              if (a.dTail !== Infinity && b.dTail !== Infinity) {
+                  return b.dTail - a.dTail; // 距離が長い（時間稼ぎできる）方を優先
+              }
+              return b.space - a.space;
+          });
+          return safeMoves[0].dir;
+      }
+  } else {
+      // 【パターンC】安全なルートが一つもない（絶体絶命）
+      // 最も空きマスが多い方向へ進み、1秒でも長く悪あがきをする
+      validMoves.sort((a, b) => b.space - a.space);
+      return validMoves[0].dir;
+  }
+}
+      
+  </script></body></html>
